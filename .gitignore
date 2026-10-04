@@ -3,6 +3,9 @@ healthsvc
 healthsvc.exe
 *.test
 
+# Release packaging output
+dist/
+
 # Runtime artifacts (created next to the binary at runtime)
 logs/
 _h.dat

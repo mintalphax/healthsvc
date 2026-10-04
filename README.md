@@ -3,6 +3,25 @@
 防止青少年沉迷电脑的小工具：到配置的时间点自动锁屏。支持 **Windows** 和
 **macOS**，单个 Go 可执行文件，无运行时依赖。
 
+## 下载安装（无需开发环境）
+
+到 [Releases](https://github.com/mintalphax/healthsvc/releases) 下载对应平台的压缩包：
+
+| 文件 | 适用平台 |
+|---|---|
+| `healthsvc-windows-amd64.zip` | Windows 10/11 (x64) |
+| `healthsvc-macos-arm64.zip` | macOS Apple Silicon (M1–M4) |
+| `healthsvc-macos-amd64.zip` | macOS Intel |
+
+- **Windows**：解压后进入文件夹，右键 `install.bat` → **以管理员身份运行**。
+- **macOS**：解压后进入文件夹，执行 `sudo ./install.sh`。若提示"无法验证开发者"，
+  先执行 `sudo xattr -rd com.apple.quarantine <解压出的文件夹>` 再运行。
+
+校验文件完整性：下载 `SHA256SUMS.txt`，对比 `sha256sum`（Windows 用
+`certutil -hashfile 文件 SHA256`）输出。
+
+安装与卸载的详细说明见下文[安装](#安装)章节。
+
 ## 工作原理
 
 ```

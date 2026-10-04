@@ -25,7 +25,8 @@ import (
 	"healthsvc/pkg/service"
 )
 
-const version = "1.0.0"
+// version is stamped at build time via -ldflags "-X main.version=vX.Y.Z".
+var version = "dev"
 
 func main() {
 	// When launched by the Windows service control manager, run as service.

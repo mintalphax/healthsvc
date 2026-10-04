@@ -1,11 +1,12 @@
 #!/bin/bash
 # HealthSvc - macOS 安装脚本
 # 用法: sudo ./install.sh
-# 将二进制与配置部署到 /Library/HealthSvc 并注册 LaunchDaemon/LaunchAgent。
+# 兼容两种目录布局：发布包的扁平布局（脚本与 healthsvc 同目录），
+# 以及源码仓库布局（本脚本位于 scripts-darwin/ 子目录）。
+# 安装后程序部署到 /Library/HealthSvc 并注册 LaunchDaemon/LaunchAgent。
 
 set -euo pipefail
 
-SRC="$(cd "$(dirname "$0")/.." && pwd)"   # 项目根目录（含 healthsvc 二进制）
 DEST="/Library/HealthSvc"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -13,8 +14,14 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if [ ! -x "$SRC/healthsvc" ]; then
-    echo "[ERROR] 未找到 $SRC/healthsvc，请先构建: go build -o healthsvc ."
+# 定位安装源：优先脚本所在目录（发布包），其次上级目录（源码仓库）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -x "$SCRIPT_DIR/healthsvc" ]; then
+    SRC="$SCRIPT_DIR"
+elif [ -x "$SCRIPT_DIR/../healthsvc" ]; then
+    SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    echo "[ERROR] 未找到 healthsvc 二进制，请先构建: go build -o healthsvc ."
     exit 1
 fi
 
@@ -22,6 +29,14 @@ echo "[1/4] 部署文件到 $DEST ..."
 mkdir -p "$DEST/logs"
 cp -f "$SRC/healthsvc" "$DEST/healthsvc"
 chmod 755 "$DEST/healthsvc"
+if [ -f "$SRC/uninstall.sh" ]; then
+    cp -f "$SRC/uninstall.sh" "$DEST/uninstall.sh"
+    chmod 755 "$DEST/uninstall.sh"
+fi
+# 下载来的二进制可能带 Gatekeeper 隔离属性，剥离之（无关属性忽略错误）
+xattr -d com.apple.quarantine "$DEST/healthsvc" 2>/dev/null || true
+# 补一个 ad-hoc 签名，避免 Apple Silicon 上"未签名"问题
+codesign -s - -f "$DEST/healthsvc" 2>/dev/null || true
 # 配置文件只在首次安装时复制，避免重装覆盖家长的设置
 if [ ! -f "$DEST/configs/config.yaml" ]; then
     mkdir -p "$DEST/configs"
