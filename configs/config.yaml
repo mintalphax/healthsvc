@@ -1,0 +1,50 @@
+# 健康锁屏服务配置（Windows / macOS 通用）
+# Windows：注册为系统服务；macOS：注册为 LaunchDaemon。
+# 修改本文件后服务会在 10 秒内自动重载，无需重启。
+
+service:
+  # Windows 服务名（macOS 忽略此节）
+  name: "KeepHealthService"
+  display_name: "System Health Service"
+  description: "System Health Service keeps the system running."
+
+schedule:
+  # 时间点列表（24小时制），到点即触发锁屏
+  lock_times:
+    - "23:10"
+
+  # 在哪些星期执行（留空表示每天执行，"*" 也表示每天）
+  weekdays:
+  #  - "Monday"
+  #  - "Tuesday"
+  #  - "Wednesday"
+  #  - "Thursday"
+  #  - "Friday"
+  # 如果要每天执行，注释掉上面的 weekdays 或者设为空数组
+
+  # 是否启用
+  enable: true
+
+  # 检查时间间隔（秒）
+  check_interval: 30  # 每30秒检查一次当前时间
+
+ntp:
+  # NTP 服务器列表（留空使用默认服务器）
+  servers:
+    - "cn.pool.ntp.org"
+    - "pool.ntp.org"
+    - "time.windows.com"
+    - "time.apple.com"
+
+  # 获取网络时间失败时的最大重试次数
+  max_retries: 3
+
+  # 重试间隔（秒）
+  retry_interval: 5
+
+  # NTP获取失败时是否允许使用本地时间（不推荐，可能被篡改）
+  allow_local_time: true
+
+  # 最大允许的时间偏移（秒），超过此值会记录警告
+  # 设置为0表示不检查时间偏移
+  max_time_offset: 300
