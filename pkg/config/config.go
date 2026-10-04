@@ -23,10 +23,11 @@ const (
 )
 
 var defaultNTPServers = []string{
-	"cn.pool.ntp.org",
 	"pool.ntp.org",
-	"time.windows.com",
 	"time.apple.com",
+	"time.windows.com",
+	"time.google.com",
+	"cn.pool.ntp.org",
 }
 
 // ServiceConfig describes the Windows service registration (ignored on macOS).

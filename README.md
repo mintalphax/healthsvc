@@ -1,77 +1,91 @@
-# healthsvc（跨平台健康锁屏服务）
+# healthsvc — Scheduled Screen-Lock Service
 
-防止青少年沉迷电脑的小工具：到配置的时间点自动锁屏。支持 **Windows** 和
-**macOS**，单个 Go 可执行文件，无运行时依赖。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 下载安装（无需开发环境）
+A small parental-control tool that locks the screen at scheduled times to
+curb teen computer overuse. Works on **Windows** and **macOS**; ships as a
+single Go binary with no runtime dependencies.
 
-到 [Releases](https://github.com/mintalphax/healthsvc/releases) 下载对应平台的压缩包：
+## Download & Install (no development environment needed)
 
-| 文件 | 适用平台 |
+Grab the archive for your platform from the
+[Releases](https://github.com/mintalphax/healthsvc/releases) page:
+
+| File | Platform |
 |---|---|
 | `healthsvc-windows-amd64.zip` | Windows 10/11 (x64) |
 | `healthsvc-macos-arm64.zip` | macOS Apple Silicon (M1–M4) |
 | `healthsvc-macos-amd64.zip` | macOS Intel |
 
-- **Windows**：解压后进入文件夹，右键 `install.bat` → **以管理员身份运行**。
-- **macOS**：解压后进入文件夹，执行 `sudo ./install.sh`。若提示"无法验证开发者"，
-  先执行 `sudo xattr -rd com.apple.quarantine <解压出的文件夹>` 再运行。
+- **Windows**: extract the archive, right-click `install.bat` → **Run as
+  administrator**.
+- **macOS**: extract the archive, then run `sudo ./install.sh`. If macOS
+  complains that the developer cannot be verified, run
+  `sudo xattr -rd com.apple.quarantine <extracted folder>` first.
 
-校验文件完整性：下载 `SHA256SUMS.txt`，对比 `sha256sum`（Windows 用
-`certutil -hashfile 文件 SHA256`）输出。
+To verify integrity, download `SHA256SUMS.txt` and compare with `sha256sum`
+(on Windows: `certutil -hashfile <file> SHA256`).
 
-安装与卸载的详细说明见下文[安装](#安装)章节。
+See [Installation](#installation) below for details, including uninstalling.
 
-## 工作原理
+## How it works
 
 ```
                     ┌──────────────────────────────────────────────┐
-                    │  特权守护进程（每 30 秒检查一次）                │
-                    │  1. NTP 对时获得可信时间（防改系统时钟绕过）      │
-                    │  2. 到达 lock_times 且今天未锁过 → 写触发文件     │
-                    │     _h.dat，并把时间记入 _state.dat 去重        │
+                    │  privileged daemon (checks every 30 s)       │
+                    │  1. queries NTP for trusted time (so         │
+                    │     changing the system clock cannot         │
+                    │     bypass the schedule)                     │
+                    │  2. when a lock time is reached and not yet  │
+                    │     locked today → writes trigger file       │
+                    │     _h.dat and records it in _state.dat      │
                     └───────────────────┬──────────────────────────┘
                                         │ _h.dat
                                         ▼
                     ┌──────────────────────────────────────────────┐
-                    │  用户会话组件（只有它能锁用户的屏幕）             │
-                    │  Windows: 每分钟计划任务 monitor.bat            │
-                    │           → rundll32 LockWorkStation          │
-                    │  macOS  : LaunchAgent (WatchPaths, 即时)       │
-                    │           → 强制唤醒即要密码 + pmset 熄屏即锁    │
+                    │  user-session component (the only context    │
+                    │  that can lock the user's screen)            │
+                    │  Windows: per-minute scheduled task          │
+                    │           monitor.bat → LockWorkStation      │
+                    │  macOS  : LaunchAgent (WatchPaths, instant)  │
+                    │           → require-password-now + pmset     │
+                    │             display sleep = locked           │
                     └──────────────────────────────────────────────┘
 ```
 
-服务跑在 SYSTEM / root 上下文，无法直接锁交互会话的屏幕，因此采用
-"触发文件 + 用户会话代理"的两段式结构：
+The daemon runs as SYSTEM / root, which cannot lock an interactive session's
+screen. That is why the design splits into a trigger file plus a per-user
+component:
 
-- **macOS 用 launchd `WatchPaths`**：守护进程一写 `_h.dat`，agent 立刻被拉起，
-  比 Windows 的每分钟轮询延迟更低。
-- **直接锁屏兜底**：若触发文件 90 秒内没被用户会话组件消费（如 agent 被卸载），
-  macOS 上守护进程会以 root 直接执行 `pmset displaysleepnow` 锁屏。
+- **macOS uses launchd `WatchPaths`**: the agent is launched the instant the
+  daemon writes `_h.dat` — lower latency than the Windows per-minute poll.
+- **Direct-lock fallback**: if the trigger is not consumed within 90 seconds
+  (e.g. the agent was unloaded), the daemon on macOS performs the lock
+  directly as root via `pmset displaysleepnow`.
 
-## 目录结构
+## Repository layout
 
 ```
 healthsvc/
-├── main.go                  # 入口与命令行（-install/-uninstall/-run/-agent/-dry-run）
-├── main_darwin.go           # macOS：LaunchDaemon/LaunchAgent 安装、agent 模式
-├── main_windows.go          # Windows：服务模式入口、服务注册
+├── main.go                  # entry point & CLI (-install/-uninstall/-run/-agent/-dry-run)
+├── main_darwin.go           # macOS: LaunchDaemon/LaunchAgent install, agent mode
+├── main_windows.go          # Windows: service-mode entry, service registration
 ├── pkg/
-│   ├── config/              # config.yaml 解析、校验、轮询热重载、调度判断
-│   ├── ntp/                 # 手写 SNTP 客户端（多服务器、重试、偏移告警）
-│   ├── lockscreen/          # FileTrigger 触发协议 + 各平台锁屏动作
-│   ├── logger/              # 日志轮转与旧日志清理
-│   └── service/             # 调度主循环、_state.dat 状态去重、Windows 服务封装
-├── configs/config.yaml      # 默认配置
-├── scripts-windows/         # Windows 安装/卸载脚本与服务计划任务脚本
-├── scripts-darwin/          # macOS 安装/卸载脚本
-└── build.sh / build.bat     # 本机与交叉编译
+│   ├── config/              # config.yaml parsing, validation, hot reload, schedule matching
+│   ├── ntp/                 # hand-written SNTP client (multi-server, retries, offset warning)
+│   ├── lockscreen/          # FileTrigger protocol + per-platform lock actions
+│   ├── logger/              # log rotation & old-log cleanup
+│   └── service/             # scheduler loop, _state.dat dedup, Windows service wrapper
+├── configs/config.yaml      # default configuration
+├── scripts-windows/         # Windows install/uninstall scripts & scheduled-task scripts
+├── scripts-darwin/          # macOS install/uninstall scripts
+└── build.sh / build.bat     # local & cross builds
 ```
 
-## 构建
+## Build
 
-需要 Go 1.24+。在本机构建，或从任一平台交叉编译两个产物：
+Requires Go 1.24+. Build on the host, or cross-compile both artifacts from
+any platform:
 
 ```bash
 # macOS (Apple Silicon)
@@ -81,16 +95,17 @@ GOOS=darwin GOARCH=arm64 go build -o healthsvc .
 GOOS=windows GOARCH=amd64 go build -o healthsvc.exe .
 ```
 
-或直接 `./build.sh` / `build.bat` 一次产出两个平台。
+Or run `./build.sh` / `build.bat` to produce both at once.
 
-## 安装
+## Installation
 
 ### Windows
 
-1. 把 `healthsvc.exe`、`configs\`、`scripts-windows\` 放到同一目录。
-2. 右键 **以管理员身份运行** `scripts-windows\install.bat`
-   （注册服务 `KeepHealthService` + 每分钟计划任务 `HealthMonitorTask`）。
-3. 卸载：管理员运行 `scripts-windows\uninstall.bat`。
+1. Put `healthsvc.exe`, `configs\` and `scripts-windows\` in the same folder.
+2. Right-click `scripts-windows\install.bat` → **Run as administrator**
+   (registers service `KeepHealthService` + the per-minute scheduled task
+   `HealthMonitorTask`).
+3. Uninstall: run `scripts-windows\uninstall.bat` as administrator.
 
 ### macOS
 
@@ -98,61 +113,66 @@ GOOS=windows GOARCH=amd64 go build -o healthsvc.exe .
 sudo ./scripts-darwin/install.sh
 ```
 
-脚本会把程序部署到 `/Library/HealthSvc` 并注册：
+The script deploys the program to `/Library/HealthSvc` and registers:
 
-- `/Library/LaunchDaemons/com.family.healthsvc.plist` —— root 守护进程（开机自启，
-  KeepAlive 崩溃自动拉起）
-- `/Library/LaunchAgents/com.family.healthsvc.agent.plist` —— 用户会话锁屏 agent
-  （对当前登录用户即时生效，之后每个登录的用户自动加载）
+- `/Library/LaunchDaemons/com.family.healthsvc.plist` — root daemon (starts at
+  boot, KeepAlive restarts it if it dies)
+- `/Library/LaunchAgents/com.family.healthsvc.agent.plist` — per-user lock
+  agent (activated for the current console user immediately; every future
+  login loads it automatically)
 
-安装脚本还会为当前用户设置"唤醒后立即要求密码"，这是 `pmset` 熄屏等于锁屏的前提。
+The installer also sets "require password immediately after sleep" for the
+current user — the prerequisite for `pmset` display sleep acting as a lock.
 
-卸载：
+Uninstall:
 
 ```bash
-sudo /Library/HealthSvc/uninstall.sh            # 保留配置
-sudo /Library/HealthSvc/uninstall.sh --purge    # 连程序带配置一起删除
+sudo /Library/HealthSvc/uninstall.sh            # keep configuration
+sudo /Library/HealthSvc/uninstall.sh --purge    # remove everything
 ```
 
-## 配置
+## Configuration
 
-`configs/config.yaml` 改完 10 秒内自动热重载，无需重启：
+`configs/config.yaml` hot-reloads within 10 seconds of any change; no restart
+needed:
 
 ```yaml
 schedule:
-  lock_times: ["23:10"]   # 到点锁屏，可配多个
-  weekdays: []            # 空=每天；也可 ["Monday","Friday"] 或 ["*"]
+  lock_times: ["23:10"]   # lock at these times (24h), multiple entries allowed
+  weekdays: []            # empty = every day; or ["Monday","Friday"], or ["*"]
   enable: true
-  check_interval: 30      # 检查间隔（秒）
+  check_interval: 30      # seconds between schedule checks
 ntp:
-  servers: [cn.pool.ntp.org, pool.ntp.org, time.windows.com, time.apple.com]
+  servers: [pool.ntp.org, time.apple.com, time.windows.com, time.google.com, cn.pool.ntp.org]
   max_retries: 3
   retry_interval: 5
-  allow_local_time: true  # NTP 全部失败时是否退回本地时间（false 更防篡改）
-  max_time_offset: 300    # 本地时钟与 NTP 偏移超过该秒数则告警
+  allow_local_time: true  # fall back to local clock when all NTP servers fail (false = more tamper-proof)
+  max_time_offset: 300    # warn when local clock differs from NTP by more than this many seconds
 ```
 
-## 防篡改能力与边界
+## Tamper resistance & limits
 
-| 手段 | Windows | macOS |
+| Attempt | Windows | macOS |
 |---|---|---|
-| 停止守护进程 | 需管理员；且服务配置了崩溃自动重启 | 需 sudo；KeepAlive 自动拉起 |
-| 改系统时钟 | 无效，调度使用 NTP 时间 | 无效，同左 |
-| 改配置文件 | 标准用户改不了（目录权限） | 标准用户改不了（root:staff 664） |
-| 卸载 agent | 停用计划任务需管理员 | 标准用户可 unload 自己会话的 agent，但触发文件 90 秒无人消费时守护进程直接锁屏 |
-| 断网 | NTP 失败按 `allow_local_time` 决定是否跳过 | 同左 |
+| Stop the daemon | admin required; service auto-restarts on crash | sudo required; KeepAlive brings it back |
+| Change system clock | ineffective — scheduling uses NTP time | same |
+| Edit the config | not writable by standard users (ACLs) | not writable by standard users (root:staff 664) |
+| Unload the agent | disabling the task needs admin | a standard user can unload their own agent, but the daemon locks directly when the trigger sits unconsumed for 90 s |
+| Cut the network | NTP failure honours `allow_local_time` | same |
 
-边界：若孩子本身是**管理员**，两个平台都能卸载整套组件；彻底封死需要企业级
-MDM/策略，超出本工具定位。
+Limits: if the child is an **administrator**, they can uninstall the whole
+tool on either platform. Closing that hole requires enterprise MDM/policies,
+which is beyond this tool's scope.
 
-## 测试与排障
+## Testing & troubleshooting
 
 ```bash
-# 前台干跑：不真的触发/锁屏，验证调度逻辑
+# Foreground dry run: exercises the schedule without firing triggers or locking
 healthsvc -run -dry-run
 
-# 把 lock_times 改成已过去的时刻重启，确认 _h.dat 被创建、_state.dat 被记录
-# macOS 手动验证 agent（需 root 先创建触发文件）:
+# Set a lock time in the past, restart, and confirm _h.dat is created and
+# _state.dat records it.
+# macOS: exercise the agent manually (create the trigger as root first):
 sudo touch /Library/HealthSvc/_h.dat
 launchctl kickstart gui/$(id -u)/com.family.healthsvc.agent
 
@@ -160,8 +180,9 @@ tail -f /Library/HealthSvc/logs/health.log   # macOS
 type logs\health.log                          # Windows
 ```
 
-Windows 分发无需签名（自编译自装）；macOS 分发给他人在 Gatekeeper 下需签名
-公证，本机编译自用不受影响。
+Windows builds need no signing for self-installation; distributing macOS
+builds to others requires signing & notarization (self-compiled local use is
+unaffected).
 
 ## License
 

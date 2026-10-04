@@ -1,31 +1,67 @@
 #!/bin/bash
-# HealthSvc - macOS 安装脚本
-# 用法: sudo ./install.sh
-# 兼容两种目录布局：发布包的扁平布局（脚本与 healthsvc 同目录），
-# 以及源码仓库布局（本脚本位于 scripts-darwin/ 子目录）。
-# 安装后程序部署到 /Library/HealthSvc 并注册 LaunchDaemon/LaunchAgent。
+# HealthSvc - macOS install script
+# Usage: sudo ./install.sh
+# Works with both layouts: the flat release layout (script next to the
+# healthsvc binary) and the source repo layout (script in scripts-darwin/).
+# Deploys the program to /Library/HealthSvc and registers the
+# LaunchDaemon/LaunchAgent.
+# Messages follow the system locale (zh* -> Chinese, otherwise English).
 
 set -euo pipefail
 
 DEST="/Library/HealthSvc"
 
+# ---- messages (i18n) -------------------------------------------------------
+case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+zh*)
+    MSG_ADMIN="[ERROR] 请用 sudo 运行本脚本（与 Windows 版需要管理员一致）"
+    MSG_NOBIN="[ERROR] 未找到 healthsvc 二进制，请先构建: go build -o healthsvc ."
+    MSG_STEP1="[1/4] 部署文件到 \$DEST ..."
+    MSG_STEP2="[2/4] 注册 LaunchDaemon + LaunchAgent ..."
+    MSG_STEP3="[3/4] 验证守护进程 ..."
+    MSG_RUNNING="    LaunchDaemon 正在运行"
+    MSG_NOT_RUNNING="[WARN] LaunchDaemon 未运行，请查看 \$DEST/logs/launchd.log"
+    MSG_DONE="[4/4] 完成。"
+    MSG_HELP_1="  查看状态:   sudo launchctl print system/com.family.healthsvc | head -20"
+    MSG_HELP_2="  查看日志:   tail -f \$DEST/logs/health.log"
+    MSG_HELP_3="  修改配置:   sudo vi \$DEST/configs/config.yaml（10 秒内自动生效）"
+    MSG_HELP_4="  卸载:       sudo \$DEST/uninstall.sh"
+    MSG_HINT="说明: 家长测试锁屏可执行  sudo \$DEST/healthsvc -run -dry-run 预演调度。"
+    ;;
+*)
+    MSG_ADMIN="[ERROR] Please run this script with sudo (admin rights are required, same as on Windows)"
+    MSG_NOBIN="[ERROR] healthsvc binary not found; build it first: go build -o healthsvc ."
+    MSG_STEP1="[1/4] Deploying files to \$DEST ..."
+    MSG_STEP2="[2/4] Registering LaunchDaemon + LaunchAgent ..."
+    MSG_STEP3="[3/4] Verifying the daemon ..."
+    MSG_RUNNING="    LaunchDaemon is running"
+    MSG_NOT_RUNNING="[WARN] LaunchDaemon is not running; see \$DEST/logs/launchd.log"
+    MSG_DONE="[4/4] Done."
+    MSG_HELP_1="  Status:      sudo launchctl print system/com.family.healthsvc | head -20"
+    MSG_HELP_2="  Logs:        tail -f \$DEST/logs/health.log"
+    MSG_HELP_3="  Edit config: sudo vi \$DEST/configs/config.yaml (hot-reloads within 10 s)"
+    MSG_HELP_4="  Uninstall:   sudo \$DEST/uninstall.sh"
+    MSG_HINT="Tip: to preview the schedule without locking, run  sudo \$DEST/healthsvc -run -dry-run"
+    ;;
+esac
+
 if [ "$(id -u)" -ne 0 ]; then
-    echo "[ERROR] 请用 sudo 运行本脚本（与 Windows 版需要管理员一致）"
+    echo "$MSG_ADMIN"
     exit 1
 fi
 
-# 定位安装源：优先脚本所在目录（发布包），其次上级目录（源码仓库）
+# Locate the install source: script dir first (release layout), then parent (repo layout)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -x "$SCRIPT_DIR/healthsvc" ]; then
     SRC="$SCRIPT_DIR"
 elif [ -x "$SCRIPT_DIR/../healthsvc" ]; then
     SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 else
-    echo "[ERROR] 未找到 healthsvc 二进制，请先构建: go build -o healthsvc ."
+    echo "$MSG_NOBIN"
     exit 1
 fi
 
-echo "[1/4] 部署文件到 $DEST ..."
+echo "$MSG_STEP1"
 mkdir -p "$DEST/logs"
 cp -f "$SRC/healthsvc" "$DEST/healthsvc"
 chmod 755 "$DEST/healthsvc"
@@ -33,37 +69,38 @@ if [ -f "$SRC/uninstall.sh" ]; then
     cp -f "$SRC/uninstall.sh" "$DEST/uninstall.sh"
     chmod 755 "$DEST/uninstall.sh"
 fi
-# 下载来的二进制可能带 Gatekeeper 隔离属性，剥离之（无关属性忽略错误）
+# Drop the Gatekeeper quarantine attribute on downloaded binaries (ignore if unset)
 xattr -d com.apple.quarantine "$DEST/healthsvc" 2>/dev/null || true
-# 补一个 ad-hoc 签名，避免 Apple Silicon 上"未签名"问题
+# Ad-hoc signing avoids "unsigned binary" issues on Apple Silicon
 codesign -s - -f "$DEST/healthsvc" 2>/dev/null || true
-# 配置文件只在首次安装时复制，避免重装覆盖家长的设置
+# Copy the default config only on first install; reinstalls keep parent settings
 if [ ! -f "$DEST/configs/config.yaml" ]; then
     mkdir -p "$DEST/configs"
     cp "$SRC/configs/config.yaml" "$DEST/configs/config.yaml"
 fi
-# 根目录 root:staff 775 —— 守护进程(root)写触发文件，用户会话 agent 可删除
+# root:staff 775 - the root daemon writes the trigger file; the user-session
+# agent must be able to remove it
 chown -R root:staff "$DEST"
 chmod 775 "$DEST"
 chmod 664 "$DEST/configs/config.yaml" 2>/dev/null || true
 
-echo "[2/4] 注册 LaunchDaemon + LaunchAgent ..."
+echo "$MSG_STEP2"
 "$DEST/healthsvc" -install
 
-echo "[3/4] 验证守护进程 ..."
+echo "$MSG_STEP3"
 sleep 2
 if launchctl print "system/com.family.healthsvc" >/dev/null 2>&1; then
-    echo "    LaunchDaemon 正在运行"
+    echo "$MSG_RUNNING"
 else
-    echo "[WARN] LaunchDaemon 未运行，请查看 $DEST/logs/launchd.log"
+    echo "$MSG_NOT_RUNNING"
 fi
 
-echo "[4/4] 完成。"
+echo "$MSG_DONE"
 echo
-echo "常用命令:"
-echo "  查看状态:   sudo launchctl print system/com.family.healthsvc | head -20"
-echo "  查看日志:   tail -f $DEST/logs/health.log"
-echo "  修改配置:   sudo vi $DEST/configs/config.yaml（10 秒内自动生效）"
-echo "  卸载:       sudo $DEST/uninstall.sh"
-echo
-echo "说明: 家长测试锁屏可执行  sudo $DEST/healthsvc -run -dry-run 预演调度。"
+echo "----------------------------------------"
+echo "$MSG_HELP_1"
+echo "$MSG_HELP_2"
+echo "$MSG_HELP_3"
+echo "$MSG_HELP_4"
+echo "----------------------------------------"
+echo "$MSG_HINT"
