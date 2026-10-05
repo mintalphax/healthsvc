@@ -37,6 +37,12 @@ if /I not "%SCRIPT_DIR%"=="%INSTALL_DIR%" (
     copy /Y "%SCRIPT_DIR%run_hidden.vbs" "%INSTALL_DIR%" >nul
     copy /Y "%SCRIPT_DIR%create_task.ps1" "%INSTALL_DIR%" >nul
     copy /Y "%SCRIPT_DIR%uninstall.bat" "%INSTALL_DIR%" >nul
+) else (
+    REM Flat layout: still refresh the copies so a stale script version can
+    REM never survive an install.
+    copy /Y "%SCRIPT_DIR%monitor.bat" "%INSTALL_DIR%" >nul 2>&1
+    copy /Y "%SCRIPT_DIR%run_hidden.vbs" "%INSTALL_DIR%" >nul 2>&1
+    copy /Y "%SCRIPT_DIR%create_task.ps1" "%INSTALL_DIR%" >nul 2>&1
 )
 
 REM Check if running as administrator

@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 echo ========================================
-echo    Health Service - Uninstall
+echo    Health Service - Uninstall  [script v3]
 echo ========================================
 echo.
 
@@ -91,6 +91,8 @@ echo Purging contents of "%INSTALL_DIR%" ...
 echo The folder itself is kept if another program ^(e.g. an open cmd prompt^)
 echo still holds it; everything inside is removed either way.
 cd /d "%TEMP%" 2>nul
-del /f /q "%INSTALL_DIR%*" >nul 2>&1
+REM Subdirectories first. Deleting the batch's own file must happen last and
+REM inside the (goto) chain: cmd reads the script incrementally, so removing
+REM this file any earlier silently kills the rest of the script.
 for /d %%D in ("%INSTALL_DIR%*") do rd /s /q "%%~D" >nul 2>&1
-(goto) 2>nul & del /f /q "%~f0" & rd "%INSTALL_DIR%" 2>nul
+(goto) 2>nul & del /f /q "%INSTALL_DIR%*" & rd "%INSTALL_DIR%" 2>nul
