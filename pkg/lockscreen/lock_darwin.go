@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	cgSessionPath = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+	cgSessionPath  = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+	screenSaverApp = "/System/Library/CoreServices/ScreenSaverEngine.app"
 	// AgentLabel is the launchd label of the per-user lock agent; a root
 	// daemon uses it to kickstart the agent directly.
 	AgentLabel = "com.family.healthsvc.agent"
 )
 
 // EnforcePasswordPolicy makes macOS require the password immediately when the
-// display wakes, so pmset displaysleepnow acts as a real screen lock. Must run
-// in the user's session (LaunchAgent context).
+// screen saver starts or the display wakes, so the screen saver acts as a
+// real screen lock. Must run in the user's session (LaunchAgent context).
 func EnforcePasswordPolicy() error {
 	if err := exec.Command("/usr/bin/defaults", "-currentHost", "write",
 		"com.apple.screensaver", "askForPassword", "-int", "1").Run(); err != nil {
@@ -37,28 +38,42 @@ func EnforcePasswordPolicy() error {
 }
 
 // LockScreen locks the screen from within a user GUI session (LaunchAgent).
-// Order: pmset display sleep (primary), osascript Ctrl+Cmd+Q (needs
-// Accessibility if pmset is unavailable), legacy CGSession as a last resort.
+// Order: start the screen saver (macOS 26/Tahoe no longer engages the
+// lock-on-wake flow for pmset display sleep), then pmset display sleep for
+// older macOS, then the osascript lock shortcut and legacy CGSession.
 func LockScreen() error {
-	// Best effort: make sure waking the display requires a password.
+	// Best effort: make sure waking from the screen saver requires a password.
 	_ = EnforcePasswordPolicy()
 
-	if err := exec.Command("/usr/bin/pmset", "displaysleepnow").Run(); err != nil {
-		lastErr := fmt.Errorf("pmset displaysleepnow: %w", err)
+	var lastErr error
 
-		script := `tell application "System Events" to keystroke "q" using {command down, control down}`
-		if err := exec.Command("/usr/bin/osascript", "-e", script).Run(); err == nil {
+	// Primary: the screen saver. Waking from it honours askForPassword.
+	if _, err := os.Stat(screenSaverApp); err == nil {
+		if err := exec.Command("/usr/bin/open", "-a", screenSaverApp).Run(); err == nil {
 			return nil
 		}
-
-		if _, statErr := os.Stat(cgSessionPath); statErr == nil {
-			if err := exec.Command(cgSessionPath, "-suspend").Run(); err == nil {
-				return nil
-			}
-		}
-		return lastErr
+		lastErr = fmt.Errorf("start ScreenSaverEngine: %w", err)
 	}
-	return nil
+
+	// Secondary: display sleep (locks on macOS < 26 when askForPassword is set).
+	if err := exec.Command("/usr/bin/pmset", "displaysleepnow").Run(); err != nil {
+		lastErr = fmt.Errorf("pmset displaysleepnow: %w", err)
+	} else {
+		return nil
+	}
+
+	// Tertiary: the lock-screen keyboard shortcut (needs Accessibility TCC).
+	script := `tell application "System Events" to keystroke "q" using {command down, control down}`
+	if err := exec.Command("/usr/bin/osascript", "-e", script).Run(); err == nil {
+		return nil
+	}
+
+	if _, statErr := os.Stat(cgSessionPath); statErr == nil {
+		if err := exec.Command(cgSessionPath, "-suspend").Run(); err == nil {
+			return nil
+		}
+	}
+	return lastErr
 }
 
 // KickstartAgent starts the user-session lock agent from a root context,

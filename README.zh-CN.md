@@ -60,8 +60,15 @@ macOS 用 `shasum -a 256`）。
 
 编辑 `lock_times`（24 小时制 `HH:MM`，可配多个）、`weekdays`（留空或 `["*"]`
 表示每天），以及可选的 `timezone`——字段含义见[配置](#配置)一节。守护进程
-10 秒内热重载配置并**立即重新检查**调度，无需重启任何东西；改完可以看日志确认
-reload 生效。
+10 秒内热重载配置并**立即重新检查**调度，无需重启任何东西。改完先自检：
+
+```bash
+/Library/HealthSvc/healthsvc -check        # macOS（读取已安装的配置）
+healthsvc.exe -check                        # Windows（在安装目录里运行）
+```
+
+`-check` 会打印生效的调度（含钉扎的时区及其当前时间），配置有错（比如时区名
+拼错）时以非零退出码报错。
 
 ---
 
@@ -166,8 +173,13 @@ ntp:
   max_time_offset: 300    # 本地时钟与 NTP 偏移超过该秒数则告警
 ```
 
-`schedule.timezone` 接受任意 IANA 时区名（`Asia/Shanghai`、`UTC`、
-`Europe/Berlin`……）；留空则跟随机器的系统时区。
+`schedule.timezone` 接受任意 IANA 时区名。常用的（配置文件注释里也列了）：
+`Asia/Shanghai`、`Asia/Hong_Kong`、`Asia/Taipei`、`Asia/Singapore`、
+`Asia/Tokyo`、`Asia/Seoul`、`UTC`、`Europe/London`、`Europe/Berlin`、
+`Europe/Paris`、`America/New_York`、`America/Chicago`、`America/Denver`、
+`America/Los_Angeles`、`America/Vancouver`、`Australia/Sydney`。写错的时区名
+会被拒绝：热重载时守护进程保留旧配置并记录告警日志；启动时则拒绝启动。改完
+用 `healthsvc -check` 验证。
 
 ## 防篡改能力与边界
 
@@ -200,9 +212,12 @@ defaults -currentHost read com.apple.screensaver askForPassword   # 应为 1
 
 如果 agent 缺失，注销重新登录后再运行一次安装脚本即可。
 
-**症状：屏幕黑了一下但唤醒后没要求密码。** 锁屏 agent 没跑起来，是守护进程的
-兜底锁在起作用（不带密码策略）。按上面的方法修复 agent，并查看 `agent.log`
-里的报错。
+**症状：熄屏/屏保启动了，但唤醒后没要求密码。** 先确认锁屏 agent 已加载并运行
+过（见上文），且 `askForPassword` 读取为 `1`。在 macOS 26（Tahoe）上工具会
+**启动屏保**而不是熄屏——因为 Tahoe 对 `pmset` 熄屏不再触发锁屏联动，而屏保
+唤醒遵循"立即要求密码"设置。如果仍不弹密码：到 **系统设置 → 锁定屏幕 → 需要
+密码：立即** 手动设一遍再试，并检查 `pmset -g assertions` 里是否有应用
+（音视频等）阻止机器进入锁定状态。
 
 **日志位置**：
 

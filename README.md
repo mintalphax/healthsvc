@@ -71,7 +71,16 @@ Edit `lock_times` (24-hour `HH:MM`, multiple entries allowed), `weekdays`
 (empty or `["*"]` = every day), and optionally `timezone` — see
 [Configuration](#configuration). The daemon hot-reloads the file within 10
 seconds and re-checks the schedule immediately, so there is nothing to
-restart. Tail the log to confirm the reload was picked up.
+restart. Validate the edit before relying on it:
+
+```bash
+/Library/HealthSvc/healthsvc -check        # macOS (reads the installed config)
+healthsvc.exe -check                        # Windows (run in the install folder)
+```
+
+It prints the effective schedule, including which timezone is pinned and the
+current time in that zone, and exits non-zero on any config error (e.g. a
+misspelled IANA zone name).
 
 ---
 
@@ -186,8 +195,14 @@ ntp:
   max_time_offset: 300    # warn when the local clock differs from NTP by more than this many seconds
 ```
 
-`schedule.timezone` accepts any IANA zone name (`Asia/Shanghai`, `UTC`,
-`Europe/Berlin`, …). Leave it empty to follow the machine's system timezone.
+`schedule.timezone` accepts any IANA zone name. Common ones (also listed in
+the config comments): `Asia/Shanghai`, `Asia/Hong_Kong`, `Asia/Taipei`,
+`Asia/Singapore`, `Asia/Tokyo`, `Asia/Seoul`, `UTC`, `Europe/London`,
+`Europe/Berlin`, `Europe/Paris`, `America/New_York`, `America/Chicago`,
+`America/Denver`, `America/Los_Angeles`, `America/Vancouver`,
+`Australia/Sydney`. A misspelled zone is rejected: on hot reload the daemon
+keeps the previous config and logs a warning; at startup it refuses to start.
+Verify edits with `healthsvc -check`.
 
 ## Tamper resistance & limits
 
@@ -222,9 +237,15 @@ defaults -currentHost read com.apple.screensaver askForPassword   # expect 1
 
 If the agent is missing, log out and back in, then re-run the installer.
 
-**Symptom: display sleeps but no password is asked on wake.** The lock agent
-did not run; the daemon's fallback locked without the password policy. Fix
-the agent as above, and check `logs/agent.log` for errors.
+**Symptom: display sleeps / screen saver starts but no password is asked on
+wake.** First verify the lock agent is loaded and ran (see above) and that
+`askForPassword` reads `1`. On macOS 26 (Tahoe) the tool starts the **screen
+saver** instead of a display sleep, because Tahoe no longer engages the
+lock-on-wake flow for `pmset` display sleep; waking from the screen saver
+honours the "require password immediately" setting. If it still does not
+prompt, re-set it in **System Settings → Lock Screen → Require password …:
+Immediately** and test again, and check `pmset -g assertions` for apps
+(audio/video) keeping the machine awake.
 
 **Logs**:
 

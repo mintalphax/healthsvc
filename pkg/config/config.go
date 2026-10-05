@@ -122,7 +122,8 @@ func (c *Config) Validate() error {
 	} else {
 		loc, err := time.LoadLocation(tz)
 		if err != nil {
-			return fmt.Errorf("schedule.timezone %q: %w", tz, err)
+			return fmt.Errorf("schedule.timezone %q is not a valid IANA zone name "+
+				"(common zones are listed in the config comments; verify with healthsvc -check): %w", tz, err)
 		}
 		c.loc = loc
 	}

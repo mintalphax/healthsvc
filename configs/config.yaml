@@ -25,6 +25,15 @@ schedule:
   # Optional: pin the timezone used to interpret lock_times and weekdays
   # (IANA name). When set, changing the machine's system timezone has no
   # effect on the schedule. Leave empty to follow the system timezone.
+  #
+  # Common zone names (any IANA zone works; run "healthsvc -check" to verify):
+  #   Asia/Shanghai   Asia/Hong_Kong   Asia/Taipei   Asia/Singapore
+  #   Asia/Tokyo      Asia/Seoul       UTC           Europe/London
+  #   Europe/Berlin   Europe/Paris     America/New_York  America/Chicago
+  #   America/Denver  America/Los_Angeles  America/Vancouver  Australia/Sydney
+  #
+  # A misspelled zone is rejected at load time: the daemon keeps running with
+  # the previous config (see the log) and the lock schedule is unchanged.
   # timezone: "Asia/Shanghai"
 
   # Master switch

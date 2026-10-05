@@ -20,7 +20,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
+	"healthsvc/pkg/config"
 	"healthsvc/pkg/logger"
 	"healthsvc/pkg/service"
 )
@@ -44,12 +46,18 @@ func main() {
 		agentFlag   = flag.Bool("agent", false, "run as the user-session lock agent (macOS, triggered by launchd WatchPaths)")
 		configFlag  = flag.String("config", "", "path to config.yaml (default: <binary dir>/configs/config.yaml)")
 		dryRun      = flag.Bool("dry-run", false, "log what would happen; never fire triggers or lock")
+		checkFlag   = flag.Bool("check", false, "validate the config file and print the effective schedule, then exit")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("healthsvc %s (%s/%s)\n", version, osName(), archName())
+		return
+	}
+
+	if *checkFlag {
+		checkConfig(*configFlag)
 		return
 	}
 
@@ -91,6 +99,28 @@ func main() {
 		}
 		runScheduler(baseDir, log, *dryRun)
 	}
+}
+
+// checkConfig validates the config file and prints the effective schedule.
+// It is a safe pre-flight check for edits (especially schedule.timezone).
+func checkConfig(configFlag string) {
+	path := configFlag
+	if path == "" {
+		path = filepath.Join(baseDirFor(""), "configs", "config.yaml")
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config INVALID: %s\n%v\n", path, err)
+		os.Exit(1)
+	}
+	loc := cfg.Location()
+	fmt.Printf("config OK: %s\n", path)
+	fmt.Printf("  lock times : %v\n", cfg.Schedule.LockTimes)
+	fmt.Printf("  weekdays   : %v (empty = every day)\n", cfg.Schedule.Weekdays)
+	fmt.Printf("  timezone   : %s (current time there: %s)\n",
+		loc, time.Now().In(loc).Format("2006-01-02 15:04"))
+	fmt.Printf("  enabled    : %v\n", cfg.Schedule.Enable)
+	fmt.Printf("  check every: %s\n", cfg.GetCheckInterval())
 }
 
 // baseDirFor resolves the install directory. Config/log/state/trigger paths
