@@ -120,10 +120,16 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 		return fmt.Errorf("write %s: %w", agentPlistPath, err)
 	}
 
-	// Replace a previous daemon, then load the new one.
+	// Replace a previous daemon, then load the new one. bootout is
+	// asynchronous: re-bootstrapping the same label immediately afterwards
+	// races with the teardown and fails with "Bootstrap failed: 5:
+	// Input/output error", so wait for the job to disappear first.
 	_, _ = exec.Command("/bin/launchctl", "bootout", "system/"+daemonLabel).CombinedOutput()
-	if out, err := exec.Command("/bin/launchctl", "bootstrap", "system", daemonPlistPath).CombinedOutput(); err != nil {
-		return fmt.Errorf("bootstrap daemon: %v: %s", err, strings.TrimSpace(string(out)))
+	if err := waitJobGone("system/"+daemonLabel, 10*time.Second); err != nil {
+		return fmt.Errorf("previous daemon %s did not unload: %w", daemonLabel, err)
+	}
+	if err := bootstrapLaunchdJob("system", daemonLabel, daemonPlistPath); err != nil {
+		return err
 	}
 	if err := exec.Command("/bin/launchctl", "print", "system/"+daemonLabel).Run(); err != nil {
 		return fmt.Errorf("daemon %s did not load; see logs/launchd.log", daemonLabel)
@@ -137,17 +143,19 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 	} else {
 		gui := fmt.Sprintf("gui/%d", uid)
 		_, _ = exec.Command("/bin/launchctl", "bootout", gui+"/"+agentLabel).CombinedOutput()
-		bootOut, bootErr := exec.Command("/bin/launchctl", "bootstrap", gui, agentPlistPath).CombinedOutput()
-		if bootErr != nil {
+		if err := waitJobGone(gui+"/"+agentLabel, 10*time.Second); err != nil {
+			return fmt.Errorf("previous agent %s did not unload: %w", agentLabel, err)
+		}
+		if err := bootstrapLaunchdJob(gui, agentLabel, agentPlistPath); err != nil {
 			// Some setups reject a cross-user bootstrap; retry inside the
 			// user's per-user launchd context.
-			bootOut, bootErr = exec.Command("/bin/launchctl", "asuser", fmt.Sprint(uid),
-				"/bin/launchctl", "bootstrap", gui, agentPlistPath).CombinedOutput()
-		}
-		if bootErr != nil || exec.Command("/bin/launchctl", "print", gui+"/"+agentLabel).Run() != nil {
-			return fmt.Errorf("lock agent failed to load into gui/%d: %v: %s; "+
-				"log out and back in, then re-run install (without the agent the screen will not lock)",
-				uid, bootErr, strings.TrimSpace(string(bootOut)))
+			retry := exec.Command("/bin/launchctl", "asuser", strconv.Itoa(uid),
+				"bootstrap", gui, agentPlistPath)
+			if retryErr := retry.Run(); retryErr != nil {
+				return fmt.Errorf("lock agent failed to load into gui/%d: %w / %v; "+
+					"log out and back in, then re-run install (without the agent the screen will not lock)",
+					uid, err, retryErr)
+			}
 		}
 		// Registration is not enough: RunAtLoad ran the agent once at
 		// bootstrap, so its last exit code tells us whether it actually
@@ -271,4 +279,41 @@ func lastExitCode(printOut string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// waitJobGone polls launchctl until the job is no longer registered in its
+// domain. bootout is asynchronous, and immediately re-bootstrapping the same
+// label races with the teardown, failing with "Bootstrap failed: 5:
+// Input/output error".
+func waitJobGone(job string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if err := exec.Command("/bin/launchctl", "print", job).Run(); err != nil {
+			return nil // unknown job: it is gone
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s still registered after %v", job, timeout)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+}
+
+// bootstrapLaunchdJob runs "launchctl bootstrap <domain> <plist>", retrying
+// up to three times: even after bootout and a wait, launchd can still hold
+// the previous job for a moment, which surfaces as exit status 5 (EIO).
+// Each retry re-runs bootout and waits for the job to disappear.
+func bootstrapLaunchdJob(domain, label, plist string) error {
+	var lastErr error
+	var lastOut string
+	for attempt := 1; attempt <= 3; attempt++ {
+		out, err := exec.Command("/bin/launchctl", "bootstrap", domain, plist).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastErr, lastOut = err, string(out)
+		_, _ = exec.Command("/bin/launchctl", "bootout", domain+"/"+label).CombinedOutput()
+		_ = waitJobGone(domain+"/"+label, 5*time.Second)
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+	}
+	return fmt.Errorf("bootstrap %s: %v: %s", domain, lastErr, strings.TrimSpace(lastOut))
 }
