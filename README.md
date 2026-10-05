@@ -35,8 +35,9 @@ on Windows, `shasum -a 256` on macOS).
    same folder** (see [Changing the schedule](#changing-the-lock-schedule-after-install)).
 4. Logs: `logs\health.log` in the install folder.
 5. **Uninstall**: right-click `uninstall.bat` → Run as administrator, in the
-   same folder. It stops and removes the service and the scheduled task. After
-   uninstalling, the folder is inert and can be deleted.
+   same folder. It stops and removes the service and the scheduled task. To
+   also delete the install folder (exe, configs, logs, state), run
+   `uninstall.bat --purge` from an admin Command Prompt instead.
 
 ### macOS — binary install
 
@@ -174,7 +175,8 @@ Related macOS 26 quirks worth knowing:
                     ┌──────────────────────────────────────────────┐
                     │  user-session component (the only context    │
                     │  that can lock the user's screen)            │
-                    │  Windows: per-minute scheduled task          │
+                    │  Windows: scheduled task (kicked instantly   │
+                    │           by the service; 1-min poll backup) │
                     │           monitor.bat → LockWorkStation      │
                     │  macOS  : LaunchAgent (WatchPaths, instant)  │
                     │           → require-password-now + pmset     │
@@ -186,8 +188,10 @@ The daemon runs as SYSTEM / root, which cannot lock an interactive session's
 screen. That is why the design splits into a trigger file plus a per-user
 component:
 
-- **macOS uses launchd `WatchPaths`**: the agent is launched the instant the
-  daemon writes `_h.dat` — lower latency than the Windows per-minute poll.
+- **Instant delivery on both platforms**: the daemon kickstarts the
+  user-session component the moment it fires the trigger (`launchctl
+  kickstart` on macOS, `schtasks /Run` on Windows). The per-minute poll /
+  `WatchPaths` remain as backup delivery channels.
 - **Direct-lock fallback**: if the trigger is not consumed within 90 seconds
   (e.g. the agent was unloaded), the daemon on macOS enforces the
   password-after-sleep policy for the console user and performs the lock
@@ -280,6 +284,13 @@ If the agent is missing, log out and back in, then re-run the installer.
 quirk — see [macOS: making sure wake requires a password](#macos-making-sure-wake-requires-a-password)
 for the fix. Also verify the agent ran: `logs/agent.log` should contain
 `screen locked` for the attempt.
+
+**Popup: "Open File – Security Warning" for monitor.bat.** Files extracted
+from a browser-downloaded zip carry Mark-of-the-Web; the installer clears it
+for every installed file (`Unblock-File`). If you still see the prompt, the
+files were extracted by a tool that kept the mark — right-click each file →
+Properties → Unblock, or run
+`powershell "Get-ChildItem -Recurse | Unblock-File"` in the install folder.
 
 **Logs**:
 

@@ -54,3 +54,26 @@ echo.
 echo ========================================
 echo Uninstallation Complete!
 echo ========================================
+
+REM --purge also deletes the install folder (exe, configs, logs, state).
+REM Only allowed when uninstall.bat itself lives in that folder - in the
+REM source-checkout layout the "install folder" is the repo root, which must
+REM never be wiped by a flag.
+if /I not "%~1"=="--purge" (
+    echo.
+    echo Tip: run "uninstall.bat --purge" from an admin prompt to also delete
+    echo the install folder and its config and log files.
+    exit /b 0
+)
+
+if /I not "%SCRIPT_DIR%"=="%INSTALL_DIR%" (
+    echo.
+    echo [WARNING] --purge was skipped: "%INSTALL_DIR%" is not the folder that
+    echo contains uninstall.bat - refusing to delete a source-checkout directory.
+    echo Delete leftover files manually if that is what you intended.
+    exit /b 0
+)
+
+echo.
+echo Purging install folder "%INSTALL_DIR%" ...
+(goto) 2>nul & rd /s /q "%INSTALL_DIR%"

@@ -31,7 +31,8 @@ macOS 用 `shasum -a 256`）。
    （见下文[安装后修改锁屏时间](#安装后修改锁屏时间)）。
 4. 日志：安装目录下的 `logs\health.log`。
 5. **卸载**：同目录下右键 `uninstall.bat` 以管理员身份运行。会先停止再删除服务和
-   计划任务；卸载后该文件夹即可删除。
+   计划任务；如需连安装目录（exe、configs、日志、状态文件）一起删除，在管理员
+   命令提示符里运行 `uninstall.bat --purge`。
 
 ### macOS · 二进制安装
 
@@ -153,7 +154,8 @@ macOS 上的锁屏实现方式是**启动屏保**；唤醒时是否要求密码�
                                         ▼
                     ┌──────────────────────────────────────────────┐
                     │  用户会话组件（只有它能锁用户的屏幕）             │
-                    │  Windows: 每分钟计划任务 monitor.bat            │
+                    │  Windows: 计划任务（服务触发后立即 kickstart，   │
+                    │           1 分钟轮询兜底）                     │
                     │           → rundll32 LockWorkStation          │
                     │  macOS  : LaunchAgent (WatchPaths, 即时)       │
                     │           → 强制唤醒即要密码 + pmset 熄屏即锁    │
@@ -163,8 +165,9 @@ macOS 上的锁屏实现方式是**启动屏保**；唤醒时是否要求密码�
 服务跑在 SYSTEM / root 上下文，无法直接锁交互会话的屏幕，因此采用
 "触发文件 + 用户会话代理"的两段式结构：
 
-- **macOS 用 launchd `WatchPaths`**：守护进程一写 `_h.dat`，agent 立刻被拉起，
-  比 Windows 的每分钟轮询延迟更低。
+- **双平台即时投递**：守护进程写入触发文件后会立刻 kickstart 用户会话组件
+  （macOS `launchctl kickstart`，Windows `schtasks /Run`）；每分钟轮询 /
+  `WatchPaths` 仅作为兜底投递通道。
 - **直接锁屏兜底**：若触发文件 90 秒内没被用户会话组件消费（如 agent 被卸载），
   macOS 上守护进程会先为当前控制台用户强制"唤醒即要密码"策略，再以 root 直接
   执行 `pmset displaysleepnow` 锁屏。
@@ -251,6 +254,12 @@ defaults -currentHost read com.apple.screensaver askForPassword   # 应为 1
 **症状：屏保启动了，但唤醒后没要求密码。** macOS 26 的已知问题——修复方法见
 [macOS：确保唤醒要求密码](#macos确保唤醒要求密码) 一节。同时确认 agent 确实
 运行了：`logs/agent.log` 里应有本次的 `screen locked` 记录。
+
+**弹窗："Open File – Security Warning"（运行 monitor.bat 的安全警告）。**
+浏览器下载的 zip 解压出的文件带 Mark-of-the-Web 标记；安装脚本已对安装目录里
+的所有文件执行 `Unblock-File` 清除。若仍弹窗，说明解压工具保留了该标记——
+右键文件 → 属性 → 解除锁定，或在安装目录里运行
+`powershell "Get-ChildItem -Recurse | Unblock-File"`。
 
 **日志位置**：
 

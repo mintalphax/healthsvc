@@ -1,12 +1,9 @@
-//go:build !darwin
+//go:build !windows && !darwin
 
 package service
 
-// directLockFunc returns nil outside macOS: Windows cannot lock the
-// interactive session from the SYSTEM service, and the scheduled task covers
-// the trigger anyway.
+// directLockFunc returns nil on platforms without a lock implementation.
 func directLockFunc() func(triggerPath string) error { return nil }
 
-// nudgeFunc returns nil outside macOS (Windows delivers the trigger via the
-// per-minute scheduled task).
+// nudgeFunc returns nil on platforms without a per-user task to kick.
 func nudgeFunc() func() error { return nil }

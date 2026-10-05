@@ -48,6 +48,11 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
+REM Remove Mark-of-the-Web from the installed files: zip archives downloaded
+REM through a browser carry it, and the per-minute scheduled task would
+REM otherwise raise an "Open File - Security Warning" prompt for monitor.bat.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%INSTALL_DIR%' -Recurse -File | Unblock-File" >nul 2>&1
+
 echo [1/4] Stop and remove old service (if exists)...
 sc stop "KeepHealthService" >nul 2>&1
 timeout /t 3 /nobreak >nul
