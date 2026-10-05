@@ -5,7 +5,9 @@
 防止青少年沉迷电脑的小工具：到配置的时间点自动锁屏。支持 **Windows** 和
 **macOS**，单个 Go 可执行文件，无运行时依赖。
 
-## 下载安装（无需开发环境）
+---
+
+## 二进制安装（推荐，无需开发环境）
 
 到 [Releases](https://github.com/mintalphax/healthsvc/releases) 下载对应平台的压缩包：
 
@@ -15,14 +17,85 @@
 | `healthsvc-macos-arm64.zip` | macOS Apple Silicon (M1–M4) |
 | `healthsvc-macos-amd64.zip` | macOS Intel |
 
-- **Windows**：解压后进入文件夹，右键 `install.bat` → **以管理员身份运行**。
-- **macOS**：解压后进入文件夹，执行 `sudo ./install.sh`。若提示"无法验证开发者"，
-  先执行 `sudo xattr -rd com.apple.quarantine <解压出的文件夹>` 再运行。
+如需校验完整性，配合 `SHA256SUMS.txt`（Windows 用 `certutil -hashfile 文件 SHA256`，
+macOS 用 `shasum -a 256`）。
 
-校验文件完整性：下载 `SHA256SUMS.txt`，对比 `sha256sum`（Windows 用
-`certutil -hashfile 文件 SHA256`）输出。
+### Windows · 二进制安装
 
-安装与卸载的详细说明见下文[安装](#安装)章节。
+1. 解压压缩包。**解压出来的文件夹就是永久安装目录**——装完后不要删，服务从这里
+   读配置、写日志。
+2. 右键 `install.bat` → **以管理员身份运行**。会注册 `KeepHealthService` 服务
+   （开机自启、崩溃自动重启）和每分钟执行的计划任务 `HealthMonitorTask`
+   （由它在你的会话里执行实际锁屏）。
+3. 以后改锁屏时间：编辑**该文件夹内**的 `configs\config.yaml`
+   （见下文[安装后修改锁屏时间](#安装后修改锁屏时间)）。
+4. 日志：安装目录下的 `logs\health.log`。
+5. **卸载**：同目录下右键 `uninstall.bat` 以管理员身份运行。会先停止再删除服务和
+   计划任务；卸载后该文件夹即可删除。
+
+### macOS · 二进制安装
+
+1. 解压压缩包，终端进入解压出的文件夹。
+2. 执行 `sudo ./install.sh`。若提示"无法验证开发者"，先执行
+   `sudo xattr -rd com.apple.quarantine <解压出的文件夹>` 再重试。
+3. 脚本会把程序部署到 `/Library/HealthSvc` 并注册：
+   - `/Library/LaunchDaemons/com.family.healthsvc.plist` —— root 调度守护进程
+     （开机自启，KeepAlive）
+   - `/Library/LaunchAgents/com.family.healthsvc.agent.plist` —— 用户会话锁屏
+     agent，安装时即加载进当前登录会话
+4. 以后改锁屏时间：编辑 `/Library/HealthSvc/configs/config.yaml`
+   （`sudo vi` 或任意编辑器，文件对管理员组可写）。
+5. 日志：`/Library/HealthSvc/logs/health.log`（守护进程）与 `agent.log`（锁屏 agent）。
+6. **卸载**：`sudo /Library/HealthSvc/uninstall.sh`（保留配置与日志），或
+   `sudo /Library/HealthSvc/uninstall.sh --purge`（全部删除）。
+
+### 安装后修改锁屏时间
+
+配置文件在安装位置——**不在**下载的压缩包里：
+
+| 安装方式 | 配置文件位置 |
+|---|---|
+| Windows 二进制 | `<安装目录>\configs\config.yaml` |
+| macOS 二进制 / 源码 | `/Library/HealthSvc/configs/config.yaml` |
+
+编辑 `lock_times`（24 小时制 `HH:MM`，可配多个）、`weekdays`（留空或 `["*"]`
+表示每天），以及可选的 `timezone`——字段含义见[配置](#配置)一节。守护进程
+10 秒内热重载配置并**立即重新检查**调度，无需重启任何东西；改完可以看日志确认
+reload 生效。
+
+---
+
+## 源码构建安装
+
+需要 Go 1.24+。这条路径最终得到的安装布局与二进制版完全相同，只是可执行文件
+的来源不同。
+
+```bash
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o healthsvc .
+
+# Windows
+GOOS=windows GOARCH=amd64 go build -o healthsvc.exe .
+```
+
+或直接 `./build.sh` / `build.bat` 一次产出两个平台；发布打包用 `./package.sh vX.Y.Z`。
+
+### Windows · 源码安装
+
+1. 建一个安装文件夹，放入：新编译的 `healthsvc.exe`、`configs\` 文件夹、
+   **`scripts-windows\` 里的全部文件**（`install.bat` 及其辅助脚本必须和 exe
+   在同一目录）。
+2. 在该文件夹里以管理员身份运行 `install.bat`。
+3. 卸载：同目录的 `uninstall.bat`，以管理员身份运行。
+
+### macOS · 源码安装
+
+1. 在仓库根目录执行 `sudo ./scripts-darwin/install.sh` —— 脚本同时支持源码
+   仓库布局（脚本位于 `scripts-darwin/`），部署结果与二进制版完全一致
+   （`/Library/HealthSvc`）。
+2. 卸载：`sudo /Library/HealthSvc/uninstall.sh`。
+
+---
 
 ## 工作原理
 
@@ -50,7 +123,8 @@
 - **macOS 用 launchd `WatchPaths`**：守护进程一写 `_h.dat`，agent 立刻被拉起，
   比 Windows 的每分钟轮询延迟更低。
 - **直接锁屏兜底**：若触发文件 90 秒内没被用户会话组件消费（如 agent 被卸载），
-  macOS 上守护进程会以 root 直接执行 `pmset displaysleepnow` 锁屏。
+  macOS 上守护进程会先为当前控制台用户强制"唤醒即要密码"策略，再以 root 直接
+  执行 `pmset displaysleepnow` 锁屏。
 
 ## 目录结构
 
@@ -68,62 +142,20 @@ healthsvc/
 ├── configs/config.yaml      # 默认配置
 ├── scripts-windows/         # Windows 安装/卸载脚本与服务计划任务脚本
 ├── scripts-darwin/          # macOS 安装/卸载脚本
+├── package.sh               # 发布打包（zip + 校验和）
 └── build.sh / build.bat     # 本机与交叉编译
-```
-
-## 构建
-
-需要 Go 1.24+。在本机构建，或从任一平台交叉编译两个产物：
-
-```bash
-# macOS (Apple Silicon)
-GOOS=darwin GOARCH=arm64 go build -o healthsvc .
-
-# Windows
-GOOS=windows GOARCH=amd64 go build -o healthsvc.exe .
-```
-
-或直接 `./build.sh` / `build.bat` 一次产出两个平台。
-
-## 安装
-
-### Windows
-
-1. 把 `healthsvc.exe`、`configs\`、`scripts-windows\` 放到同一目录。
-2. 右键 **以管理员身份运行** `scripts-windows\install.bat`
-   （注册服务 `KeepHealthService` + 每分钟计划任务 `HealthMonitorTask`）。
-3. 卸载：管理员运行 `scripts-windows\uninstall.bat`。
-
-### macOS
-
-```bash
-sudo ./scripts-darwin/install.sh
-```
-
-脚本会把程序部署到 `/Library/HealthSvc` 并注册：
-
-- `/Library/LaunchDaemons/com.family.healthsvc.plist` —— root 守护进程（开机自启，
-  KeepAlive 崩溃自动拉起）
-- `/Library/LaunchAgents/com.family.healthsvc.agent.plist` —— 用户会话锁屏 agent
-  （对当前登录用户即时生效，之后每个登录的用户自动加载）
-
-安装脚本还会为当前用户设置"唤醒后立即要求密码"，这是 `pmset` 熄屏等于锁屏的前提。
-
-卸载：
-
-```bash
-sudo /Library/HealthSvc/uninstall.sh            # 保留配置
-sudo /Library/HealthSvc/uninstall.sh --purge    # 连程序带配置一起删除
 ```
 
 ## 配置
 
-`configs/config.yaml` 改完 10 秒内自动热重载，无需重启：
+`configs/config.yaml` 完整字段参考——所有字段改动 10 秒内热重载：
 
 ```yaml
 schedule:
   lock_times: ["23:10"]   # 到点锁屏，可配多个
   weekdays: []            # 空=每天；也可 ["Monday","Friday"] 或 ["*"]
+  timezone: ""            # 可选：固定调度时区（IANA 名，如 "Asia/Shanghai"）；
+                          # 设置后修改系统时区不影响调度
   enable: true
   check_interval: 30      # 检查间隔（秒）
 ntp:
@@ -134,12 +166,16 @@ ntp:
   max_time_offset: 300    # 本地时钟与 NTP 偏移超过该秒数则告警
 ```
 
+`schedule.timezone` 接受任意 IANA 时区名（`Asia/Shanghai`、`UTC`、
+`Europe/Berlin`……）；留空则跟随机器的系统时区。
+
 ## 防篡改能力与边界
 
 | 手段 | Windows | macOS |
 |---|---|---|
 | 停止守护进程 | 需管理员；且服务配置了崩溃自动重启 | 需 sudo；KeepAlive 自动拉起 |
 | 改系统时钟 | 无效，调度使用 NTP 时间 | 无效，同左 |
+| 改系统时区 | **设置了 `schedule.timezone` 时无效**；未设置时会平移调度（两种情况都需要管理员） | 同左 |
 | 改配置文件 | 标准用户改不了（目录权限） | 标准用户改不了（root:staff 664） |
 | 卸载 agent | 停用计划任务需管理员 | 标准用户可 unload 自己会话的 agent，但触发文件 90 秒无人消费时守护进程直接锁屏 |
 | 断网 | NTP 失败按 `allow_local_time` 决定是否跳过 | 同左 |
@@ -150,17 +186,31 @@ MDM/策略，超出本工具定位。
 ## 测试与排障
 
 ```bash
-# 前台干跑：不真的触发/锁屏，验证调度逻辑
+# 前台干跑：验证调度逻辑，不真的触发/锁屏
 healthsvc -run -dry-run
-
-# 把 lock_times 改成已过去的时刻重启，确认 _h.dat 被创建、_state.dat 被记录
-# macOS 手动验证 agent（需 root 先创建触发文件）:
-sudo touch /Library/HealthSvc/_h.dat
-launchctl kickstart gui/$(id -u)/com.family.healthsvc.agent
-
-tail -f /Library/HealthSvc/logs/health.log   # macOS
-type logs\health.log                          # Windows
 ```
+
+**macOS：确认锁屏 agent 已加载**（最常见的故障点——agent 缺席时只会由守护进程
+兜底熄屏，唤醒可能不需要密码）：
+
+```bash
+launchctl print gui/$(id -u)/com.family.healthsvc.agent | head -5
+defaults -currentHost read com.apple.screensaver askForPassword   # 应为 1
+```
+
+如果 agent 缺失，注销重新登录后再运行一次安装脚本即可。
+
+**症状：屏幕黑了一下但唤醒后没要求密码。** 锁屏 agent 没跑起来，是守护进程的
+兜底锁在起作用（不带密码策略）。按上面的方法修复 agent，并查看 `agent.log`
+里的报错。
+
+**日志位置**：
+
+- macOS 守护进程：`/Library/HealthSvc/logs/health.log`；agent：`agent.log`；
+  launchd：`launchd.log`
+- Windows：安装目录下 `logs\health.log`
+
+守护进程启动时会打印它实际使用的 config/state/trigger 路径——有疑问先看这几行。
 
 Windows 分发无需签名（自编译自装）；macOS 分发给他人在 Gatekeeper 下需签名
 公证，本机编译自用不受影响。

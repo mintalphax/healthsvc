@@ -82,8 +82,9 @@ func (s *LockService) Stop() {
 // Run is the main loop; it returns after Stop or on a fatal config error.
 func (s *LockService) Run() error {
 	cfg := s.cfgMgr.GetConfig()
-	s.log.Infof("health service starting (lock times: %v, weekdays: %v, enable: %v, check interval: %ds)",
-		cfg.Schedule.LockTimes, cfg.Schedule.Weekdays, cfg.Schedule.Enable, cfg.Schedule.CheckInterval)
+	s.log.Infof("health service starting (lock times: %v, weekdays: %v, enable: %v, check interval: %ds, timezone: %q)",
+		cfg.Schedule.LockTimes, cfg.Schedule.Weekdays, cfg.Schedule.Enable, cfg.Schedule.CheckInterval, cfg.Schedule.Timezone)
+	s.log.Infof("config=%s state=%s trigger=%s", s.cfgMgr.Path(), s.statePath, s.trigger.Path())
 	defer s.cfgMgr.Stop()
 
 	s.cfgMgr.StartWatcher(10*time.Second, func() {
@@ -105,12 +106,14 @@ func (s *LockService) Run() error {
 			s.log.Infof("health service stopped")
 			return nil
 		case <-s.cfgChg:
-			newInterval := s.cfgMgr.GetConfig().GetCheckInterval()
-			s.log.Infof("config reloaded (check interval: %ds)", s.cfgMgr.GetConfig().Schedule.CheckInterval)
-			if newInterval != interval {
+			newCfg := s.cfgMgr.GetConfig()
+			s.log.Infof("config reloaded (lock times: %v, check interval: %ds, timezone: %q)",
+				newCfg.Schedule.LockTimes, newCfg.Schedule.CheckInterval, newCfg.Schedule.Timezone)
+			if newInterval := newCfg.GetCheckInterval(); newInterval != interval {
 				ticker.Reset(newInterval)
 				interval = newInterval
 			}
+			s.tick() // apply the new schedule immediately instead of waiting a full interval
 		case <-ticker.C:
 			s.tick()
 		}
@@ -161,15 +164,19 @@ func (s *LockService) trustedNow() (time.Time, string) {
 }
 
 // checkAndLock fires the trigger for every due, not-yet-locked time today.
+// "Today" and the lock times are interpreted in the schedule timezone
+// (schedule.timezone when set, otherwise the system zone).
 func (s *LockService) checkAndLock(now time.Time, source string) {
 	cfg := s.cfgMgr.GetConfig()
-	if !cfg.ShouldLockToday(now) {
+	loc := cfg.Location()
+	localNow := now.In(loc)
+	if !cfg.ShouldLockToday(localNow) {
 		return
 	}
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	midnight := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
 	for _, d := range cfg.LockTimesOfDay() {
 		at := midnight.Add(d)
-		if now.Before(at) {
+		if localNow.Before(at) {
 			continue
 		}
 		key := at.Format(stateDateLayout)
@@ -189,7 +196,7 @@ func (s *LockService) checkAndLock(now time.Time, source string) {
 		s.markLocked(key)
 		s.log.Infof("recorded lock %s in state", key)
 	}
-	s.pruneState(now)
+	s.pruneState(localNow)
 }
 
 // verifyFired is the anti-tamper fallback: if the trigger file was not
@@ -203,12 +210,14 @@ func (s *LockService) verifyFired() {
 		return
 	}
 	if s.directLock == nil {
-		s.log.Warnf("trigger %s not consumed within %v and no direct lock available on this platform; check the user-session task/agent",
+		s.log.Warnf("trigger %s not consumed within %v and no direct lock available on this platform; "+
+			"check the user-session component (macOS: launchctl print gui/$(id -u)/com.family.healthsvc.agent)",
 			s.trigger.Path(), fallbackLockDelay)
 		s.firedAt = time.Now() // warn once per interval
 		return
 	}
-	s.log.Warnf("trigger not consumed within %v; performing direct lock fallback", fallbackLockDelay)
+	s.log.Warnf("trigger not consumed within %v (user-session agent missing or failed?); performing direct lock fallback",
+		fallbackLockDelay)
 	if err := s.directLock(); err != nil {
 		s.log.Errorf("direct lock failed: %v", err)
 	}

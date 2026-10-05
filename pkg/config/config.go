@@ -10,6 +10,10 @@ import (
 	"sync"
 	"time"
 
+	// Embedded zoneinfo so pinned schedule.timezones resolve on Windows too
+	// (Windows has no /usr/share/zoneinfo).
+	_ "time/tzdata"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,6 +47,10 @@ type ScheduleConfig struct {
 	Weekdays      []string `yaml:"weekdays"`
 	Enable        bool     `yaml:"enable"`
 	CheckInterval int      `yaml:"check_interval"`
+	// Timezone optionally pins the zone used to interpret lock_times and
+	// weekdays (IANA name, e.g. "Asia/Shanghai"). Empty = the machine's
+	// system timezone.
+	Timezone string `yaml:"timezone"`
 }
 
 // NTPConfig controls trusted time acquisition.
@@ -63,6 +71,7 @@ type Config struct {
 	lockTimes []time.Duration
 	weekdays  []time.Weekday
 	wildcard  bool
+	loc       *time.Location // pinned schedule timezone; nil = system local
 }
 
 // Load reads and validates a config file.
@@ -108,6 +117,16 @@ func (c *Config) Validate() error {
 	c.weekdays = weekdays
 	c.wildcard = wildcard
 
+	if tz := strings.TrimSpace(c.Schedule.Timezone); tz == "" {
+		c.loc = nil
+	} else {
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			return fmt.Errorf("schedule.timezone %q: %w", tz, err)
+		}
+		c.loc = loc
+	}
+
 	if len(c.NTP.Servers) == 0 {
 		c.NTP.Servers = append([]string(nil), defaultNTPServers...)
 	}
@@ -138,8 +157,18 @@ func (c *Config) LockTimesOfDay() []time.Duration {
 	return c.lockTimes
 }
 
+// Location returns the pinned schedule timezone, or the system's local zone
+// when schedule.timezone is empty.
+func (c *Config) Location() *time.Location {
+	if c.loc != nil {
+		return c.loc
+	}
+	return time.Local
+}
+
 // ShouldLockToday reports whether the schedule is enabled and now's weekday
-// matches. An empty weekdays list (or "*") means every day.
+// (interpreted in the schedule timezone) matches. An empty weekdays list
+// (or "*") means every day.
 func (c *Config) ShouldLockToday(now time.Time) bool {
 	if !c.Schedule.Enable {
 		return false
@@ -147,7 +176,7 @@ func (c *Config) ShouldLockToday(now time.Time) bool {
 	if c.wildcard || len(c.weekdays) == 0 {
 		return true
 	}
-	wd := now.Weekday()
+	wd := now.In(c.Location()).Weekday()
 	for _, w := range c.weekdays {
 		if w == wd {
 			return true

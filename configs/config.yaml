@@ -22,6 +22,11 @@ schedule:
   #  - "Thursday"
   #  - "Friday"
 
+  # Optional: pin the timezone used to interpret lock_times and weekdays
+  # (IANA name). When set, changing the machine's system timezone has no
+  # effect on the schedule. Leave empty to follow the system timezone.
+  # timezone: "Asia/Shanghai"
+
   # Master switch
   enable: true
 

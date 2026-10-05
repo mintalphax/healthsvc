@@ -106,7 +106,9 @@ func InstallWindowsService(exePath string, sc config.ServiceConfig) error {
 	return nil
 }
 
-// UninstallWindowsService removes the service registration.
+// UninstallWindowsService removes the service registration. The service is
+// stopped first: Delete() only marks the service for deletion, and a running
+// instance keeps running (and writing state files) until it is stopped.
 func UninstallWindowsService(name string) error {
 	m, err := mgr.Connect()
 	if err != nil {
@@ -119,6 +121,25 @@ func UninstallWindowsService(name string) error {
 		return fmt.Errorf("open service %s: %w", name, err)
 	}
 	defer s.Close()
+
+	if status, err := s.Query(); err == nil && status.State != svc.Stopped {
+		if _, err := s.Control(svc.Stop); err != nil {
+			return fmt.Errorf("send stop to service %s: %w (try: sc stop %s)", name, err, name)
+		}
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			st, err := s.Query()
+			if err == nil && st.State == svc.Stopped {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("service %s did not stop within 15s; stop it manually (sc stop %s) and retry",
+					name, name)
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+
 	if err := s.Delete(); err != nil {
 		return fmt.Errorf("delete service: %w", err)
 	}

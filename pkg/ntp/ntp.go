@@ -27,6 +27,10 @@ type Client struct {
 	MaxRetries    int
 	RetryInterval time.Duration
 	Timeout       time.Duration
+	// OverallBudget bounds the total time one GetTime call may spend across
+	// all servers and retries, so a flaky network cannot stall the scheduler
+	// loop for minutes. Zero means 15 seconds.
+	OverallBudget time.Duration
 }
 
 // Result is one successful time query.
@@ -40,7 +44,8 @@ type Result struct {
 var errNoServers = errors.New("no ntp servers configured")
 
 // GetTime tries every configured server, up to MaxRetries rounds, and returns
-// the first successful response.
+// the first successful response. It never spends more than OverallBudget
+// (default 15s) in total.
 func (c *Client) GetTime(now time.Time) (*Result, error) {
 	if len(c.Servers) == 0 {
 		return nil, errNoServers
@@ -53,10 +58,21 @@ func (c *Client) GetTime(now time.Time) (*Result, error) {
 	if retries <= 0 {
 		retries = 1
 	}
+	budget := c.OverallBudget
+	if budget <= 0 {
+		budget = 15 * time.Second
+	}
+	deadline := time.Now().Add(budget)
 
 	var lastErr error
 	for attempt := 0; attempt < retries; attempt++ {
 		for _, server := range c.Servers {
+			if time.Now().After(deadline) {
+				if lastErr == nil {
+					lastErr = errors.New("ntp time budget exhausted")
+				}
+				return nil, fmt.Errorf("%w (budget %v)", lastErr, budget)
+			}
 			res, err := c.query(server, timeout)
 			if err == nil {
 				return res, nil

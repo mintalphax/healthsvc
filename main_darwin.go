@@ -103,6 +103,8 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 	<array>
 		<string>%s</string>
 	</array>
+	<key>RunAtLoad</key>
+	<true/>
 </dict>
 </plist>
 `, agentLabel, exe, triggerPath)
@@ -119,16 +121,29 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 	if out, err := exec.Command("/bin/launchctl", "bootstrap", "system", daemonPlistPath).CombinedOutput(); err != nil {
 		return fmt.Errorf("bootstrap daemon: %v: %s", err, strings.TrimSpace(string(out)))
 	}
+	if err := exec.Command("/bin/launchctl", "print", "system/"+daemonLabel).Run(); err != nil {
+		return fmt.Errorf("daemon %s did not load; see logs/launchd.log", daemonLabel)
+	}
 
 	// Load the agent into the current console user's GUI session so the
 	// machine is protected without waiting for the next login.
 	uid := consoleUID()
-	if uid > 0 {
+	if uid <= 0 {
+		log.Warnf("no console user found; the lock agent will load on the next user login")
+	} else {
 		gui := fmt.Sprintf("gui/%d", uid)
 		_, _ = exec.Command("/bin/launchctl", "bootout", gui+"/"+agentLabel).CombinedOutput()
-		if out, err := exec.Command("/bin/launchctl", "bootstrap", gui, agentPlistPath).CombinedOutput(); err != nil {
-			log.Warnf("agent bootstrap for gui/%d failed (it will load at next login): %v: %s",
-				uid, err, strings.TrimSpace(string(out)))
+		bootOut, bootErr := exec.Command("/bin/launchctl", "bootstrap", gui, agentPlistPath).CombinedOutput()
+		if bootErr != nil {
+			// Some setups reject a cross-user bootstrap; retry inside the
+			// user's per-user launchd context.
+			bootOut, bootErr = exec.Command("/bin/launchctl", "asuser", fmt.Sprint(uid),
+				"/bin/launchctl", "bootstrap", gui, agentPlistPath).CombinedOutput()
+		}
+		if bootErr != nil || exec.Command("/bin/launchctl", "print", gui+"/"+agentLabel).Run() != nil {
+			return fmt.Errorf("lock agent failed to load into gui/%d: %v: %s; "+
+				"log out and back in, then re-run install (without the agent the screen will not lock)",
+				uid, bootErr, strings.TrimSpace(string(bootOut)))
 		}
 		// Enforce "require password immediately" for the console user so the
 		// pmset-based lock is airtight even before the first agent run.

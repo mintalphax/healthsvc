@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
+	"strconv"
+	"syscall"
 )
 
 const cgSessionPath = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
@@ -53,14 +56,57 @@ func LockScreen() error {
 }
 
 // LockScreenDirect locks the screen from a root LaunchDaemon without a GUI
-// session. pmset is setuid root so display sleep works here; the password
-// policy is assumed to have been enforced earlier by the agent.
+// session. Before sleeping the display it enforces the password policy for
+// the console user — without it, waking would not require the password and
+// the "lock" would be a mere display sleep.
 func LockScreenDirect() error {
 	if _, err := os.Stat("/usr/bin/pmset"); err != nil {
 		return errors.New("pmset not available")
+	}
+	if err := enforcePasswordForConsoleUser(); err != nil {
+		// Non-fatal: the agent may have enforced the policy already.
+		_ = err
 	}
 	if err := exec.Command("/usr/bin/pmset", "displaysleepnow").Run(); err != nil {
 		return fmt.Errorf("pmset displaysleepnow (direct): %w", err)
 	}
 	return nil
+}
+
+// enforcePasswordForConsoleUser writes the screensaver password policy into
+// the console user's preferences (a root daemon would otherwise only change
+// root's own prefs). Best effort.
+func enforcePasswordForConsoleUser() error {
+	uid := consoleUID()
+	if uid <= 0 {
+		return errors.New("no console user found")
+	}
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return fmt.Errorf("resolve uid %d: %w", uid, err)
+	}
+	for _, kv := range [][2]string{
+		{"askForPassword", "1"},
+		{"askForPasswordDelay", "0"},
+	} {
+		cmd := exec.Command("/usr/bin/sudo", "-u", u.Username, "/usr/bin/defaults", "-currentHost",
+			"write", "com.apple.screensaver", kv[0], "-int", kv[1])
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("defaults write %s for %s: %w", kv[0], u.Username, err)
+		}
+	}
+	return nil
+}
+
+// consoleUID returns the uid of the logged-in console user (0 if unknown).
+func consoleUID() int {
+	fi, err := os.Stat("/dev/console")
+	if err != nil {
+		return 0
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0
+	}
+	return int(st.Uid)
 }

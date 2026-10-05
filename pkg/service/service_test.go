@@ -126,6 +126,42 @@ func TestCheckAndLockDryRun(t *testing.T) {
 	}
 }
 
+func TestCheckAndLockWithPinnedTimezone(t *testing.T) {
+	// Lock at 19:00 UTC; the schedule is pinned to UTC so the trigger time is
+	// interpreted in UTC even though the machine runs in another zone.
+	s := newTestService(t, `
+schedule:
+  lock_times: ["19:00"]
+  enable: true
+  timezone: "UTC"
+ntp:
+  allow_local_time: true
+`)
+	// 2026-10-05 20:00 UTC (= next day early morning in +08:00 local zones).
+	now := time.Date(2026, 10, 5, 20, 0, 0, 0, time.UTC)
+	s.checkAndLock(now, "local")
+	if !s.isLockedDate("2026-10-05-19:00") {
+		t.Fatalf("pinned timezone key missing: %v", s.state.LockedDates)
+	}
+
+	// Same instant, but schedule not pinned: interpretation follows the
+	// machine's zone. Construct "today 20:00 local" — always past 19:00 of
+	// the local day, in any timezone.
+	now2 := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 20, 0, 0, 0, time.Local)
+	s2 := newTestService(t, `
+schedule:
+  lock_times: ["19:00"]
+  enable: true
+ntp:
+  allow_local_time: true
+`)
+	s2.checkAndLock(now2, "local")
+	localKey := now2.In(time.Local).Format("2006-01-02") + "-19:00"
+	if !s2.isLockedDate(localKey) {
+		t.Fatalf("system-zone key %q missing: %v", localKey, s2.state.LockedDates)
+	}
+}
+
 func TestCheckAndLockDisabledWeekday(t *testing.T) {
 	// 2026-10-04 is a Sunday; only Monday allowed => nothing recorded.
 	s := newTestService(t, `

@@ -115,6 +115,54 @@ schedule:
 	}
 }
 
+func TestTimezonePin(t *testing.T) {
+	path := writeTemp(t, `
+schedule:
+  lock_times: ["23:10"]
+  weekdays: ["Monday"]
+  enable: true
+  timezone: "UTC"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load with timezone: %v", err)
+	}
+	if cfg.Location().String() != "UTC" {
+		t.Fatalf("want UTC location, got %v", cfg.Location())
+	}
+	// Monday 2026-10-05 23:30 UTC. In +08:00 that is Tuesday 07:30 local,
+	// so a system-timezone interpretation would reject it — the pin must win.
+	mondayUTC := time.Date(2026, 10, 5, 23, 30, 0, 0, time.UTC)
+	if !cfg.ShouldLockToday(mondayUTC) {
+		t.Fatal("pinned UTC timezone should treat 2026-10-05 as Monday")
+	}
+
+	// Empty timezone follows the system zone.
+	sys := writeTemp(t, `
+schedule:
+  lock_times: ["23:10"]
+  enable: true
+`)
+	cfg2, err := Load(sys)
+	if err != nil {
+		t.Fatalf("Load without timezone: %v", err)
+	}
+	if cfg2.Location() != time.Local {
+		t.Fatalf("empty timezone should follow system local")
+	}
+
+	// Invalid IANA names must fail validation.
+	bad := writeTemp(t, `
+schedule:
+  lock_times: ["23:10"]
+  enable: true
+  timezone: "Mars/Olympus"
+`)
+	if _, err := Load(bad); err == nil {
+		t.Fatal("invalid timezone should fail")
+	}
+}
+
 func TestManagerReloadOnChange(t *testing.T) {
 	path := writeTemp(t, `
 schedule:

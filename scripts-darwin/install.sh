@@ -26,7 +26,8 @@ zh*)
     MSG_HELP_2="  查看日志:   tail -f \$DEST/logs/health.log"
     MSG_HELP_3="  修改配置:   sudo vi \$DEST/configs/config.yaml（10 秒内自动生效）"
     MSG_HELP_4="  卸载:       sudo \$DEST/uninstall.sh"
-    MSG_HINT="说明: 家长测试锁屏可执行  sudo \$DEST/healthsvc -run -dry-run 预演调度。"
+    MSG_HELP_5="  检查 agent: launchctl print gui/\$(id -u)/com.family.healthsvc.agent | head -5"
+    MSG_HINT="说明: 改锁屏时间编辑 \$DEST/configs/config.yaml，10 秒内生效；家长测试可执行  sudo \$DEST/healthsvc -run -dry-run 预演调度。"
     ;;
 *)
     MSG_ADMIN="[ERROR] Please run this script with sudo (admin rights are required, same as on Windows)"
@@ -41,7 +42,8 @@ zh*)
     MSG_HELP_2="  Logs:        tail -f \$DEST/logs/health.log"
     MSG_HELP_3="  Edit config: sudo vi \$DEST/configs/config.yaml (hot-reloads within 10 s)"
     MSG_HELP_4="  Uninstall:   sudo \$DEST/uninstall.sh"
-    MSG_HINT="Tip: to preview the schedule without locking, run  sudo \$DEST/healthsvc -run -dry-run"
+    MSG_HELP_5="  Check agent: launchctl print gui/\$(id -u)/com.family.healthsvc.agent | head -5"
+    MSG_HINT="Tip: to change the lock times edit \$DEST/configs/config.yaml (hot-reloads within 10 s); to preview the schedule run  sudo \$DEST/healthsvc -run -dry-run"
     ;;
 esac
 
@@ -102,5 +104,6 @@ echo "$MSG_HELP_1"
 echo "$MSG_HELP_2"
 echo "$MSG_HELP_3"
 echo "$MSG_HELP_4"
+echo "$MSG_HELP_5"
 echo "----------------------------------------"
 echo "$MSG_HINT"
