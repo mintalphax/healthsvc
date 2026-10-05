@@ -55,13 +55,14 @@ echo ========================================
 echo Uninstallation Complete!
 echo ========================================
 
-REM --purge also deletes the install folder (exe, configs, logs, state).
-REM Two safety rules:
+REM --purge deletes everything inside the install folder (exe, configs, logs,
+REM state). The folder itself is removed as well when no other process still
+REM holds it - e.g. an open cmd prompt with that directory as its working
+REM directory keeps the folder alive while its contents are wiped. Two safety
+REM rules:
 REM   * a folder containing go.mod or .git is the source checkout and is
-REM     never deleted, no matter which layout produced it;
-REM   * cmd's own working directory is moved to %TEMP% first, otherwise
-REM     Windows reports "the process cannot access the file" for the very
-REM     directory being removed.
+REM     never purged, no matter which layout produced it;
+REM   * cmd's own working directory is moved to %TEMP% first.
 if /I not "%~1"=="--purge" (
     echo.
     echo Tip: run "uninstall.bat --purge" from an admin prompt to also delete
@@ -86,8 +87,10 @@ if exist "%INSTALL_DIR%.git" (
 )
 
 echo.
-echo Purging install folder "%INSTALL_DIR%" ...
-echo If Windows still reports a file in use ^(Explorer / antivirus holding a
-echo handle^), delete what remains manually.
+echo Purging contents of "%INSTALL_DIR%" ...
+echo The folder itself is kept if another program ^(e.g. an open cmd prompt^)
+echo still holds it; everything inside is removed either way.
 cd /d "%TEMP%" 2>nul
-(goto) 2>nul & rd /s /q "%INSTALL_DIR%"
+del /f /q "%INSTALL_DIR%*" >nul 2>&1
+for /d %%D in ("%INSTALL_DIR%*") do rd /s /q "%%~D" >nul 2>&1
+(goto) 2>nul & del /f /q "%~f0" & rd "%INSTALL_DIR%" 2>nul
