@@ -1,11 +1,21 @@
 @echo off
+setlocal enabledelayedexpansion
 echo ========================================
 echo    Health Service - Uninstall
 echo ========================================
 echo.
 
 REM Get the directory where this script is located
-set "INSTALL_DIR=%~dp0"
+set "SCRIPT_DIR=%~dp0"
+set "INSTALL_DIR=%SCRIPT_DIR%"
+
+REM Same two layouts as install.bat: exe next to the script (release zip) or
+REM one level up (source checkout, where install.bat also staged the helpers).
+if not exist "%INSTALL_DIR%healthsvc.exe" if exist "%SCRIPT_DIR%..\healthsvc.exe" (
+    pushd "%SCRIPT_DIR%.."
+    set "INSTALL_DIR=!CD!\"
+    popd
+)
 
 REM Check if running as administrator
 net session >nul 2>&1

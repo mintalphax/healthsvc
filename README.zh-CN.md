@@ -89,11 +89,15 @@ GOOS=windows GOARCH=amd64 go build -o healthsvc.exe .
 
 ### Windows · 源码安装
 
-1. 建一个安装文件夹，放入：新编译的 `healthsvc.exe`、`configs\` 文件夹、
-   **`scripts-windows\` 里的全部文件**（`install.bat` 及其辅助脚本必须和 exe
-   在同一目录）。
-2. 在该文件夹里以管理员身份运行 `install.bat`。
-3. 卸载：同目录的 `uninstall.bat`，以管理员身份运行。
+1. 按上面的命令构建 `healthsvc.exe`——产物在仓库根目录，与 `scripts-windows\`
+   相邻。
+2. 右键 `scripts-windows\install.bat` → **以管理员身份运行**。脚本会自动找到
+   上一级的 exe 并把辅助脚本复制过去，仓库根目录随之成为安装目录（配置、日志、
+   状态文件都在那里）。想用独立目录也行：把 `healthsvc.exe`、`configs\` 和
+   `scripts-windows\` 的内容放进同一个文件夹再运行其 `install.bat`——两种布局
+   都支持。
+3. 卸载：以管理员身份运行 `scripts-windows\uninstall.bat`（被复制到 exe 旁边的
+   那份同样可用）。
 
 ### macOS · 源码安装
 

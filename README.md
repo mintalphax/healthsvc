@@ -102,12 +102,16 @@ or run `./build.sh` / `build.bat` to produce both. For release packaging use
 
 ### Windows — source install
 
-1. Create an install folder and put into it: the freshly built
-   `healthsvc.exe`, the `configs\` folder, and **the contents of**
-   `scripts-windows\` (`install.bat` and its helpers must sit next to the
-   exe).
-2. Run that folder's `install.bat` as administrator.
-3. Uninstall: `uninstall.bat` from the same folder, as administrator.
+1. Build `healthsvc.exe` (commands above) — it lands in the repo root, next to
+   `scripts-windows\`.
+2. Right-click `scripts-windows\install.bat` → **Run as administrator**. The
+   script finds the exe one level up and copies the helper scripts next to
+   it, so the repo root becomes the install folder (config, logs and state
+   files live there from then on). Prefer a separate folder? Assemble one
+   with `healthsvc.exe`, `configs\` and the contents of `scripts-windows\`
+   and run its `install.bat` — both layouts work.
+3. Uninstall: `scripts-windows\uninstall.bat` as administrator (the copy next
+   to the exe works too).
 
 ### macOS — source install
 
