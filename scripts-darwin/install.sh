@@ -27,6 +27,8 @@ zh*)
     MSG_HELP_3="  修改配置:   sudo vi \$DEST/configs/config.yaml（10 秒内自动生效）"
     MSG_HELP_4="  卸载:       sudo \$DEST/uninstall.sh"
     MSG_HELP_5="  检查 agent: launchctl print gui/\$(id -u)/com.family.healthsvc.agent | head -5"
+    MSG_NOTE_1="[提示] macOS 26：若第一次真实锁屏测试唤醒后没有要求密码，"
+    MSG_NOTE_2="       请在 系统设置 → 锁定屏幕 → 需要密码 设为\"立即\"（设一次即可），详见仓库 README。"
     MSG_HINT="说明: 改锁屏时间编辑 \$DEST/configs/config.yaml，10 秒内生效；家长测试可执行  sudo \$DEST/healthsvc -run -dry-run 预演调度。"
     ;;
 *)
@@ -43,6 +45,8 @@ zh*)
     MSG_HELP_3="  Edit config: sudo vi \$DEST/configs/config.yaml (hot-reloads within 10 s)"
     MSG_HELP_4="  Uninstall:   sudo \$DEST/uninstall.sh"
     MSG_HELP_5="  Check agent: launchctl print gui/\$(id -u)/com.family.healthsvc.agent | head -5"
+    MSG_NOTE_1="[NOTE] macOS 26: if the first real lock test does not ask for a password on wake,"
+    MSG_NOTE_2="       set System Settings -> Lock Screen -> Require password: Immediately once (see README)."
     MSG_HINT="Tip: to change the lock times edit \$DEST/configs/config.yaml (hot-reloads within 10 s); to preview the schedule run  sudo \$DEST/healthsvc -run -dry-run"
     ;;
 esac
@@ -106,6 +110,13 @@ fi
 
 echo "$MSG_DONE"
 echo
+# macOS 26 专属提示：程序化写入的密码策略可能不被采纳
+macos_major="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
+if [ "${macos_major:-0}" -ge 26 ] 2>/dev/null; then
+    echo "$MSG_NOTE_1"
+    echo "$MSG_NOTE_2"
+    echo
+fi
 echo "----------------------------------------"
 echo "$MSG_HELP_1"
 echo "$MSG_HELP_2"

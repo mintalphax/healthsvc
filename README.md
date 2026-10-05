@@ -118,6 +118,41 @@ or run `./build.sh` / `build.bat` to produce both. For release packaging use
 
 ---
 
+## macOS: making sure wake requires a password
+
+On macOS, locking works by **starting the screen saver**; whether waking from
+it asks for a password is controlled by *System Settings → Lock Screen →
+Require password after screen saver begins or display is turned off*.
+
+The installer and every lock attempt set this policy programmatically
+(`askForPassword = 1`, delay = 0), so on macOS 13–15 it works out of the box.
+On **macOS 26 (Tahoe)** the system may **not honour the programmatic write** —
+the screen saver starts but wake does not ask for a password. If that happens:
+
+1. Open **System Settings → Lock Screen**.
+2. Set *Require password after screen saver begins or display is turned off*
+   to **Immediately**. You only have to do this once; the setting sticks.
+3. Verify with a test lock (this starts the screen saver right away):
+
+   ```bash
+   sudo touch /Library/HealthSvc/_h.dat
+   ```
+
+   Wake should now ask for the password. Check the current value any time
+   with `defaults -currentHost read com.apple.screensaver askForPassword`
+   (expected: `1`), and `logs/agent.log` should contain `screen locked` for
+   every attempt.
+
+Related macOS 26 quirks worth knowing:
+
+- Tahoe moved the screen-saver timeout out of the Lock Screen pane; the
+  password requirement stays there.
+- If the display refuses to sleep at all, some app is holding a power
+  assertion (audio/video playback, presentations) — check `pmset -g
+  assertions`.
+
+---
+
 ## How it works
 
 ```
@@ -237,15 +272,10 @@ defaults -currentHost read com.apple.screensaver askForPassword   # expect 1
 
 If the agent is missing, log out and back in, then re-run the installer.
 
-**Symptom: display sleeps / screen saver starts but no password is asked on
-wake.** First verify the lock agent is loaded and ran (see above) and that
-`askForPassword` reads `1`. On macOS 26 (Tahoe) the tool starts the **screen
-saver** instead of a display sleep, because Tahoe no longer engages the
-lock-on-wake flow for `pmset` display sleep; waking from the screen saver
-honours the "require password immediately" setting. If it still does not
-prompt, re-set it in **System Settings → Lock Screen → Require password …:
-Immediately** and test again, and check `pmset -g assertions` for apps
-(audio/video) keeping the machine awake.
+**Symptom: screen saver starts but no password is asked on wake.** A macOS 26
+quirk — see [macOS: making sure wake requires a password](#macos-making-sure-wake-requires-a-password)
+for the fix. Also verify the agent ran: `logs/agent.log` should contain
+`screen locked` for the attempt.
 
 **Logs**:
 

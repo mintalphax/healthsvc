@@ -25,13 +25,24 @@ const (
 // EnforcePasswordPolicy makes macOS require the password immediately when the
 // screen saver starts or the display wakes, so the screen saver acts as a
 // real screen lock. Must run in the user's session (LaunchAgent context).
+// The policy is written to both the current-host and the regular preference
+// domain: on macOS 26 the system sometimes ignores the current-host write
+// alone. If even that is not honoured (macOS 26 regression reports), the user
+// must set System Settings → Lock Screen → Require password: Immediately once.
 func EnforcePasswordPolicy() error {
-	if err := exec.Command("/usr/bin/defaults", "-currentHost", "write",
-		"com.apple.screensaver", "askForPassword", "-int", "1").Run(); err != nil {
+	write := func(args ...string) error {
+		return exec.Command("/usr/bin/defaults", args...).Run()
+	}
+	if err := write("-currentHost", "write", "com.apple.screensaver", "askForPassword", "-int", "1"); err != nil {
+		return fmt.Errorf("set askForPassword (currentHost): %w", err)
+	}
+	if err := write("write", "com.apple.screensaver", "askForPassword", "-int", "1"); err != nil {
 		return fmt.Errorf("set askForPassword: %w", err)
 	}
-	if err := exec.Command("/usr/bin/defaults", "-currentHost", "write",
-		"com.apple.screensaver", "askForPasswordDelay", "-int", "0").Run(); err != nil {
+	if err := write("-currentHost", "write", "com.apple.screensaver", "askForPasswordDelay", "-int", "0"); err != nil {
+		return fmt.Errorf("set askForPasswordDelay (currentHost): %w", err)
+	}
+	if err := write("write", "com.apple.screensaver", "askForPasswordDelay", "-int", "0"); err != nil {
 		return fmt.Errorf("set askForPasswordDelay: %w", err)
 	}
 	return nil
@@ -135,10 +146,15 @@ func enforcePasswordForConsoleUser() error {
 		{"askForPassword", "1"},
 		{"askForPasswordDelay", "0"},
 	} {
-		cmd := exec.Command("/usr/bin/sudo", "-u", u.Username, "/usr/bin/defaults", "-currentHost",
-			"write", "com.apple.screensaver", kv[0], "-int", kv[1])
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("defaults write %s for %s: %w", kv[0], u.Username, err)
+		for _, domain := range []string{"-currentHost", ""} {
+			cmd := exec.Command("/usr/bin/sudo", "-u", u.Username, "/usr/bin/defaults")
+			if domain != "" {
+				cmd.Args = append(cmd.Args, domain)
+			}
+			cmd.Args = append(cmd.Args, "write", "com.apple.screensaver", kv[0], "-int", kv[1])
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("defaults write %s (%s) for %s: %w", kv[0], domain, u.Username, err)
+			}
 		}
 	}
 	return nil

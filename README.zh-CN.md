@@ -104,6 +104,38 @@ GOOS=windows GOARCH=amd64 go build -o healthsvc.exe .
 
 ---
 
+## macOS：确保唤醒要求密码
+
+macOS 上的锁屏实现方式是**启动屏保**；唤醒时是否要求密码，由 *系统设置 →
+锁定屏幕 → "屏幕保护程序开始或显示器关闭后需要密码"* 控制。
+
+安装脚本和每次锁屏动作都会以程序化方式写入该策略
+（`askForPassword = 1`，延迟 = 0），macOS 13–15 上开箱即用。但在
+**macOS 26（Tahoe）** 上系统可能**不采纳程序化写入**——屏保启动了，唤醒却不
+要密码。遇到这种情况：
+
+1. 打开 **系统设置 → 锁定屏幕**。
+2. 把 *屏幕保护程序开始或显示器关闭后需要密码* 设为**立即**。只需设置一次，
+   会一直保留。
+3. 做一次测试锁屏验证（会立即启动屏保）：
+
+   ```bash
+   sudo touch /Library/HealthSvc/_h.dat
+   ```
+
+   唤醒应该要求输入密码。随时可用
+   `defaults -currentHost read com.apple.screensaver askForPassword`
+   查看当前值（应为 `1`）；每次锁屏动作 `logs/agent.log` 里都应有
+   `screen locked` 记录。
+
+其他值得知道的 macOS 26 行为：
+
+- Tahoe 把屏保超时设置从"锁定屏幕"面板挪走了，但"需要密码"仍在那里。
+- 如果显示器完全不熄屏，通常是有应用持有电源断言（音视频播放、演示模式）——
+  用 `pmset -g assertions` 检查。
+
+---
+
 ## 工作原理
 
 ```
@@ -212,12 +244,9 @@ defaults -currentHost read com.apple.screensaver askForPassword   # 应为 1
 
 如果 agent 缺失，注销重新登录后再运行一次安装脚本即可。
 
-**症状：熄屏/屏保启动了，但唤醒后没要求密码。** 先确认锁屏 agent 已加载并运行
-过（见上文），且 `askForPassword` 读取为 `1`。在 macOS 26（Tahoe）上工具会
-**启动屏保**而不是熄屏——因为 Tahoe 对 `pmset` 熄屏不再触发锁屏联动，而屏保
-唤醒遵循"立即要求密码"设置。如果仍不弹密码：到 **系统设置 → 锁定屏幕 → 需要
-密码：立即** 手动设一遍再试，并检查 `pmset -g assertions` 里是否有应用
-（音视频等）阻止机器进入锁定状态。
+**症状：屏保启动了，但唤醒后没要求密码。** macOS 26 的已知问题——修复方法见
+[macOS：确保唤醒要求密码](#macos确保唤醒要求密码) 一节。同时确认 agent 确实
+运行了：`logs/agent.log` 里应有本次的 `screen locked` 记录。
 
 **日志位置**：
 
