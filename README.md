@@ -37,7 +37,10 @@ on Windows, `shasum -a 256` on macOS).
 5. **Uninstall**: right-click `uninstall.bat` → Run as administrator, in the
    same folder. It stops and removes the service and the scheduled task. To
    also delete the install folder (exe, configs, logs, state), run
-   `uninstall.bat --purge` from an admin Command Prompt instead.
+   `uninstall.bat --purge` from an admin Command Prompt. Purge refuses to
+   delete a folder that contains `go.mod` or `.git` (the source checkout can
+   never be wiped by a flag); if Windows reports a file in use during the
+   purge, delete what remains manually.
 
 ### macOS — binary install
 

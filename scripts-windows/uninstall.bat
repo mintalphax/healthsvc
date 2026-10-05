@@ -56,9 +56,12 @@ echo Uninstallation Complete!
 echo ========================================
 
 REM --purge also deletes the install folder (exe, configs, logs, state).
-REM Only allowed when uninstall.bat itself lives in that folder - in the
-REM source-checkout layout the "install folder" is the repo root, which must
-REM never be wiped by a flag.
+REM Two safety rules:
+REM   * a folder containing go.mod or .git is the source checkout and is
+REM     never deleted, no matter which layout produced it;
+REM   * cmd's own working directory is moved to %TEMP% first, otherwise
+REM     Windows reports "the process cannot access the file" for the very
+REM     directory being removed.
 if /I not "%~1"=="--purge" (
     echo.
     echo Tip: run "uninstall.bat --purge" from an admin prompt to also delete
@@ -66,14 +69,25 @@ if /I not "%~1"=="--purge" (
     exit /b 0
 )
 
-if /I not "%SCRIPT_DIR%"=="%INSTALL_DIR%" (
+if exist "%INSTALL_DIR%go.mod" (
     echo.
-    echo [WARNING] --purge was skipped: "%INSTALL_DIR%" is not the folder that
-    echo contains uninstall.bat - refusing to delete a source-checkout directory.
-    echo Delete leftover files manually if that is what you intended.
+    echo [WARNING] --purge skipped: "%INSTALL_DIR%" contains go.mod and looks
+    echo like the source checkout. Refusing to delete it - remove leftover
+    echo files manually if that is what you intended.
+    exit /b 0
+)
+
+if exist "%INSTALL_DIR%.git" (
+    echo.
+    echo [WARNING] --purge skipped: "%INSTALL_DIR%" contains a .git folder and
+    echo looks like the source checkout. Refusing to delete it - remove
+    echo leftover files manually if that is what you intended.
     exit /b 0
 )
 
 echo.
 echo Purging install folder "%INSTALL_DIR%" ...
+echo If Windows still reports a file in use ^(Explorer / antivirus holding a
+echo handle^), delete what remains manually.
+cd /d "%TEMP%" 2>nul
 (goto) 2>nul & rd /s /q "%INSTALL_DIR%"
