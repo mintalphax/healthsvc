@@ -48,14 +48,24 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 	}
 	exe, _ = filepath.EvalSymlinks(exe)
 	triggerPath := filepath.Join(filepath.Dir(exe), "_h.dat")
+	consoleUIDInt := consoleUID()
 
 	// The root daemon creates the trigger and writes logs; the user agent
 	// must be able to remove the trigger and write agent.log, hence
-	// group-staff writability on the install dir and the logs dir.
+	// group-staff writability on the install dir and the logs dir. A stale
+	// agent.log left behind by older installs is handed to the console user,
+	// or the agent cannot append to it and dies before locking.
 	_ = os.Chown(filepath.Dir(exe), 0, staffGID)
 	_ = os.Chmod(filepath.Dir(exe), 0o775)
 	_ = os.Chown(filepath.Join(filepath.Dir(exe), "logs"), 0, staffGID)
 	_ = os.Chmod(filepath.Join(filepath.Dir(exe), "logs"), 0o775)
+	agentLog := filepath.Join(filepath.Dir(exe), "logs", "agent.log")
+	if consoleUIDInt > 0 {
+		if _, err := os.Stat(agentLog); err == nil {
+			_ = os.Chown(agentLog, consoleUIDInt, staffGID)
+			_ = os.Chmod(agentLog, 0o664)
+		}
+	}
 
 	if err := os.MkdirAll(filepath.Dir(daemonPlistPath), 0o755); err != nil {
 		return err

@@ -43,6 +43,13 @@ func New(dir, name string) (*Logger, error) {
 	return l, nil
 }
 
+// NewConsole returns a logger that only mirrors to stdout and never touches
+// files. Fallback for the user-session agent: a broken or unwritable log
+// file must never prevent the lock itself.
+func NewConsole() *Logger {
+	return &Logger{console: true, maxSize: defaultMaxBytes, keep: defaultKeepFiles}
+}
+
 // SetConsole mirrors every line to stdout (used in foreground/debug runs).
 func (l *Logger) SetConsole(on bool) {
 	l.mu.Lock()

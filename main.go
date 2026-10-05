@@ -68,8 +68,15 @@ func main() {
 	}
 	log, err := logger.New(filepath.Join(baseDir, "logs"), logName)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "init logger:", err)
-		os.Exit(1)
+		if *agentFlag {
+			// The lock must never depend on logging: if the agent cannot open
+			// its log file (ownership/permission problems after upgrades),
+			// fall back to stdout-only and keep locking.
+			log = logger.NewConsole()
+		} else {
+			fmt.Fprintln(os.Stderr, "init logger:", err)
+			os.Exit(1)
+		}
 	}
 	log.SetConsole(*runFlag || *agentFlag)
 

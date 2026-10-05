@@ -95,6 +95,12 @@ chown -R root:staff "$DEST"
 chmod 775 "$DEST"
 # logs 目录必须对用户会话可写：agent 要在里面写 agent.log，否则它启动即崩溃
 chmod 775 "$DEST/logs"
+# 旧安装遗留的 agent.log 若为 root 属主，agent 无法追加，归还给控制台用户
+console_uid="$(stat -f %u /dev/console 2>/dev/null || true)"
+if [ -n "$console_uid" ] && [ -f "$DEST/logs/agent.log" ]; then
+    chown "$console_uid":staff "$DEST/logs/agent.log"
+    chmod 664 "$DEST/logs/agent.log"
+fi
 chmod 664 "$DEST/configs/config.yaml" 2>/dev/null || true
 
 echo "$MSG_STEP2"

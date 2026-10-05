@@ -97,8 +97,8 @@ func (s *LockService) Run() error {
 	})
 
 	interval := cfg.GetCheckInterval()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(nextBoundary(interval))
+	defer timer.Stop()
 
 	s.tick() // check immediately: a machine booted past its lock time must lock at once
 
@@ -112,14 +112,29 @@ func (s *LockService) Run() error {
 			s.log.Infof("config reloaded (lock times: %v, check interval: %ds, timezone: %q)",
 				newCfg.Schedule.LockTimes, newCfg.Schedule.CheckInterval, newCfg.Schedule.Timezone)
 			if newInterval := newCfg.GetCheckInterval(); newInterval != interval {
-				ticker.Reset(newInterval)
 				interval = newInterval
 			}
+			timer.Reset(nextBoundary(interval))
 			s.tick() // apply the new schedule immediately instead of waiting a full interval
-		case <-ticker.C:
+		case <-timer.C:
 			s.tick()
+			timer.Reset(nextBoundary(interval))
 		}
 	}
+}
+
+// nextBoundary returns the duration until the next whole multiple of the
+// check interval on the wall clock, so a lock time fires on the second
+// instead of up to a full interval late (a plain ticker drifts against the
+// wall clock and can turn "12:15" into "12:15:29").
+func nextBoundary(d time.Duration) time.Duration {
+	step := int64(d.Seconds())
+	if step <= 0 {
+		return time.Second
+	}
+	now := time.Now().Unix()
+	next := (now/step + 1) * step
+	return time.Duration(next-now) * time.Second
 }
 
 // tick performs one schedule check.
