@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -48,10 +49,13 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 	exe, _ = filepath.EvalSymlinks(exe)
 	triggerPath := filepath.Join(filepath.Dir(exe), "_h.dat")
 
-	// The root daemon creates the trigger; the user agent must be able to
-	// remove it, hence group-staff writability on the install directory.
+	// The root daemon creates the trigger and writes logs; the user agent
+	// must be able to remove the trigger and write agent.log, hence
+	// group-staff writability on the install dir and the logs dir.
 	_ = os.Chown(filepath.Dir(exe), 0, staffGID)
 	_ = os.Chmod(filepath.Dir(exe), 0o775)
+	_ = os.Chown(filepath.Join(filepath.Dir(exe), "logs"), 0, staffGID)
+	_ = os.Chmod(filepath.Join(filepath.Dir(exe), "logs"), 0o775)
 
 	if err := os.MkdirAll(filepath.Dir(daemonPlistPath), 0o755); err != nil {
 		return err
@@ -144,6 +148,18 @@ func platformInstall(baseDir string, log *logger.Logger) error {
 			return fmt.Errorf("lock agent failed to load into gui/%d: %v: %s; "+
 				"log out and back in, then re-run install (without the agent the screen will not lock)",
 				uid, bootErr, strings.TrimSpace(string(bootOut)))
+		}
+		// Registration is not enough: RunAtLoad ran the agent once at
+		// bootstrap, so its last exit code tells us whether it actually
+		// executed successfully (a non-zero code means it is crashing at
+		// startup, e.g. on a directory-permission problem).
+		out, err := exec.Command("/bin/launchctl", "print", gui+"/"+agentLabel).CombinedOutput()
+		if err == nil {
+			if code, ok := lastExitCode(string(out)); ok && code != 0 {
+				return fmt.Errorf("lock agent crashed on its first run (exit code %d); "+
+					"check that %s and its logs dir are writable by the user, then re-run install",
+					code, filepath.Dir(exe))
+			}
 		}
 		// Enforce "require password immediately" for the console user so the
 		// pmset-based lock is airtight even before the first agent run.
@@ -239,4 +255,20 @@ func enforcePasswordForUser(uid int, log *logger.Logger) {
 		}
 	}
 	log.Infof("password-after-sleep policy enforced for uid %d (%s)", uid, u.Username)
+}
+
+// lastExitCode extracts "last exit code = N" from launchctl print output.
+// ok is false when the job has not exited yet (e.g. it is still running).
+func lastExitCode(printOut string) (int, bool) {
+	for _, line := range strings.Split(printOut, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "last exit code =") {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "last exit code =")))
+		if err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }

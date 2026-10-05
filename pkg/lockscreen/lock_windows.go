@@ -32,4 +32,4 @@ func EnforcePasswordPolicy() error { return nil }
 
 // LockScreenDirect is unused on Windows (SYSTEM session cannot lock the
 // interactive desktop); the scheduled task covers this case.
-func LockScreenDirect() error { return nil }
+func LockScreenDirect(triggerPath string) error { return nil }

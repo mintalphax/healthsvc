@@ -35,7 +35,8 @@ type LockService struct {
 	ntpClient  *ntp.Client
 	trigger    lockscreen.Trigger
 	statePath  string
-	directLock func() error // root-context fallback (macOS); nil on Windows
+	directLock func(triggerPath string) error // root-context fallback (macOS); nil on Windows
+	nudge      func() error                   // kickstart the user agent after firing (macOS); nil on Windows
 	dryRun     bool
 
 	state    State
@@ -61,6 +62,7 @@ func New(baseDir string, log *logger.Logger, dryRun bool) (*LockService, error) 
 		statePath:  filepath.Join(baseDir, stateFileName),
 		dryRun:     dryRun,
 		directLock: directLockFunc(),
+		nudge:      nudgeFunc(),
 		stopCh:     make(chan struct{}),
 		cfgChg:     make(chan struct{}, 1),
 		stopOnce:   make(chan struct{}),
@@ -192,6 +194,11 @@ func (s *LockService) checkAndLock(now time.Time, source string) {
 			}
 			s.log.Infof("lock time %s reached (time source %s); trigger fired", key, source)
 			s.firedAt = time.Now()
+			if s.nudge != nil {
+				if err := s.nudge(); err != nil {
+					s.log.Warnf("agent kickstart failed (%v); WatchPaths or the fallback still cover delivery", err)
+				}
+			}
 		}
 		s.markLocked(key)
 		s.log.Infof("recorded lock %s in state", key)
@@ -218,7 +225,7 @@ func (s *LockService) verifyFired() {
 	}
 	s.log.Warnf("trigger not consumed within %v (user-session agent missing or failed?); performing direct lock fallback",
 		fallbackLockDelay)
-	if err := s.directLock(); err != nil {
+	if err := s.directLock(s.trigger.Path()); err != nil {
 		s.log.Errorf("direct lock failed: %v", err)
 	}
 	if err := s.trigger.Clear(); err != nil {

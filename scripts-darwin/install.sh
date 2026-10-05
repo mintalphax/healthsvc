@@ -84,6 +84,8 @@ fi
 # agent must be able to remove it
 chown -R root:staff "$DEST"
 chmod 775 "$DEST"
+# logs 目录必须对用户会话可写：agent 要在里面写 agent.log，否则它启动即崩溃
+chmod 775 "$DEST/logs"
 chmod 664 "$DEST/configs/config.yaml" 2>/dev/null || true
 
 echo "$MSG_STEP2"

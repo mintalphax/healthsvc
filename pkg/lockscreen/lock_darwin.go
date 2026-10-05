@@ -9,10 +9,17 @@ import (
 	"os/exec"
 	"os/user"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 )
 
-const cgSessionPath = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+const (
+	cgSessionPath = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+	// AgentLabel is the launchd label of the per-user lock agent; a root
+	// daemon uses it to kickstart the agent directly.
+	AgentLabel = "com.family.healthsvc.agent"
+)
 
 // EnforcePasswordPolicy makes macOS require the password immediately when the
 // display wakes, so pmset displaysleepnow acts as a real screen lock. Must run
@@ -36,9 +43,7 @@ func LockScreen() error {
 	// Best effort: make sure waking the display requires a password.
 	_ = EnforcePasswordPolicy()
 
-	if err := exec.Command("/usr/bin/pmset", "displaysleepnow").Run(); err == nil {
-		return nil
-	} else {
+	if err := exec.Command("/usr/bin/pmset", "displaysleepnow").Run(); err != nil {
 		lastErr := fmt.Errorf("pmset displaysleepnow: %w", err)
 
 		script := `tell application "System Events" to keystroke "q" using {command down, control down}`
@@ -53,19 +58,45 @@ func LockScreen() error {
 		}
 		return lastErr
 	}
+	return nil
 }
 
-// LockScreenDirect locks the screen from a root LaunchDaemon without a GUI
-// session. Before sleeping the display it enforces the password policy for
-// the console user — without it, waking would not require the password and
-// the "lock" would be a mere display sleep.
-func LockScreenDirect() error {
+// KickstartAgent starts the user-session lock agent from a root context,
+// bypassing any WatchPaths unreliability.
+func KickstartAgent() error {
+	uid := consoleUID()
+	if uid <= 0 {
+		return errors.New("no console user found")
+	}
+	out, err := exec.Command("/bin/launchctl", "kickstart",
+		"gui/"+strconv.Itoa(uid)+"/"+AgentLabel).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("kickstart gui/%d/%s: %v: %s", uid, AgentLabel, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// LockScreenDirect performs the fallback lock from a root LaunchDaemon. The
+// lock itself must happen inside the user's GUI session, so the preferred
+// path is kickstarting the agent and waiting for it to consume the trigger;
+// root-context pmset is only a last resort (some macOS versions will not ask
+// for a password on wake for display sleeps initiated outside the session).
+func LockScreenDirect(triggerPath string) error {
 	if _, err := os.Stat("/usr/bin/pmset"); err != nil {
 		return errors.New("pmset not available")
 	}
+
+	if err := KickstartAgent(); err == nil {
+		for i := 0; i < 16; i++ {
+			time.Sleep(500 * time.Millisecond)
+			if _, err := os.Stat(triggerPath); os.IsNotExist(err) {
+				return nil // agent consumed the trigger: policy + lock ran in user context
+			}
+		}
+	}
+
 	if err := enforcePasswordForConsoleUser(); err != nil {
-		// Non-fatal: the agent may have enforced the policy already.
-		_ = err
+		_ = err // non-fatal: the agent may have enforced the policy already
 	}
 	if err := exec.Command("/usr/bin/pmset", "displaysleepnow").Run(); err != nil {
 		return fmt.Errorf("pmset displaysleepnow (direct): %w", err)
