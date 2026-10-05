@@ -61,7 +61,9 @@ on Windows, `shasum -a 256` on macOS).
    agent).
 6. **Uninstall**: `sudo /Library/HealthSvc/uninstall.sh` (keeps config and
    logs) or `sudo /Library/HealthSvc/uninstall.sh --purge` (removes
-   everything).
+   everything). On installs made before v1.2.1 that file may be missing —
+   run `sudo ./scripts-darwin/uninstall.sh` from the repo instead, same
+   effect (and re-running the installer deploys it for next time).
 
 ### Changing the lock schedule after install
 

@@ -71,8 +71,11 @@ echo "$MSG_STEP1"
 mkdir -p "$DEST/logs"
 cp -f "$SRC/healthsvc" "$DEST/healthsvc"
 chmod 755 "$DEST/healthsvc"
-if [ -f "$SRC/uninstall.sh" ]; then
-    cp -f "$SRC/uninstall.sh" "$DEST/uninstall.sh"
+# uninstall.sh always sits next to install.sh itself (scripts-darwin/ in the
+# repo layout, flat dir in the release layout) - copying it from $SRC missed
+# the repo layout and silently left /Library/HealthSvc/uninstall.sh missing.
+if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
+    cp -f "$SCRIPT_DIR/uninstall.sh" "$DEST/uninstall.sh"
     chmod 755 "$DEST/uninstall.sh"
 fi
 # Drop the Gatekeeper quarantine attribute on downloaded binaries (ignore if unset)

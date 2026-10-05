@@ -51,7 +51,10 @@ macOS 用 `shasum -a 256`）。
    （`sudo vi` 或任意编辑器，文件对管理员组可写）。
 5. 日志：`/Library/HealthSvc/logs/health.log`（守护进程）与 `agent.log`（锁屏 agent）。
 6. **卸载**：`sudo /Library/HealthSvc/uninstall.sh`（保留配置与日志），或
-   `sudo /Library/HealthSvc/uninstall.sh --purge`（全部删除）。
+   `sudo /Library/HealthSvc/uninstall.sh --purge`（全部删除）。v1.2.1 之前安装
+   的机器上该文件可能缺失——直接在仓库里运行
+   `sudo ./scripts-darwin/uninstall.sh` 即可，效果相同（重跑一次安装脚本也会
+   把它部署到位）。
 
 ### 安装后修改锁屏时间
 
