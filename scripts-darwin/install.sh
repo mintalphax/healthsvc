@@ -75,10 +75,15 @@ fi
 xattr -d com.apple.quarantine "$DEST/healthsvc" 2>/dev/null || true
 # Ad-hoc signing avoids "unsigned binary" issues on Apple Silicon
 codesign -s - -f "$DEST/healthsvc" 2>/dev/null || true
-# Copy the default config only on first install; reinstalls keep parent settings
+# Copy the default config only on first install; reinstalls keep parent
+# settings. If the shipped default has changed (e.g. new options), save it
+# alongside as config.yaml.new for manual diff & merge.
 if [ ! -f "$DEST/configs/config.yaml" ]; then
     mkdir -p "$DEST/configs"
     cp "$SRC/configs/config.yaml" "$DEST/configs/config.yaml"
+elif ! cmp -s "$SRC/configs/config.yaml" "$DEST/configs/config.yaml"; then
+    cp "$SRC/configs/config.yaml" "$DEST/configs/config.yaml.new"
+    echo "(new default config saved as configs/config.yaml.new - diff & merge new options | 新版默认配置已存为 configs/config.yaml.new，请对照合并新增选项)"
 fi
 # root:staff 775 - the root daemon writes the trigger file; the user-session
 # agent must be able to remove it
